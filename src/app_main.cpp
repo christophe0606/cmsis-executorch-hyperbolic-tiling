@@ -11,11 +11,14 @@
 //         Moebius animation of the point, up to 40 rounds of three
 //         hyperbolic reflections with early exit once no lane moves, the
 //         edge-distance test, the tile parity and the texture coordinate.
-//         It writes a "tiling G-buffer" at 240x400: texel index (int32),
-//         parity, edge and inside masks (int8).
-//   NPU   "tile": the texture lookup as a gather, tile / edge / background
-//         colouring as masked blends, a 2x bilinear upscale to 480x800 and
-//         the transpose to interleaved RGB888             (model/model.py)
+//         It writes a "tiling G-buffer" at 240x400: the gathered texel
+//         (3 int8 planes), parity, edge and inside masks (bool).
+//         The texture lookup is a Helium gather load per plane (an NPU
+//         gather via index_select compiled but fetched the wrong texels on
+//         the board), so the G-buffer carries the texel, not the index.
+//   NPU   "tile": tile / edge / background colouring as masked blends over
+//         the texels, a 2x bilinear upscale to 480x800 and the transpose to
+//         interleaved RGB888                               (model/model.py)
 //   CPU   the backend's output copy goes straight into the back frame
 //         buffer (Helium), which the CDC200 scans out at the next vblank.
 //
@@ -104,18 +107,16 @@ alignas(16) uint8_t g_method_pool[kMethodPoolSize] APP_POOL_ATTRIBUTES;
 alignas(16) uint8_t g_temp_pool[kTempPoolSize] APP_POOL_ATTRIBUTES;
 
 // Shapes from the exported method (model/model.py via model_io.h).
-constexpr int32_t kTextureShape[] = MODEL_TILE_INPUT0_SHAPE;  // {T*T, 3}
-constexpr int32_t kIndexShape[] = MODEL_TILE_INPUT1_SHAPE;    // {H*W}
-constexpr int32_t kMaskShape[] = MODEL_TILE_INPUT2_SHAPE;     // {1, 1, H, W}
-constexpr int32_t kColorShape[] = MODEL_TILE_INPUT5_SHAPE;    // {1, 3, 1, 1}
+constexpr int32_t kTexelShape[] = MODEL_TILE_INPUT0_SHAPE;    // {1, 3, H, W}
+constexpr int32_t kMaskShape[] = MODEL_TILE_INPUT1_SHAPE;     // {1, 1, H, W}
+constexpr int32_t kColorShape[] = MODEL_TILE_INPUT4_SHAPE;    // {1, 3, 1, 1}
 constexpr int32_t kFrameShape[] = MODEL_TILE_OUTPUT0_SHAPE;   // {1, FH, FW, 3}
-constexpr int kTexels = kTextureShape[0];
 constexpr int kTextureSize = 128;
-static_assert(kTextureSize * kTextureSize == kTexels, "texture is square");
+constexpr int kTexels = kTextureSize * kTextureSize;
 constexpr int kHeight = kMaskShape[2];
 constexpr int kWidth = kMaskShape[3];
 constexpr int kPixels = kWidth * kHeight;
-static_assert(kIndexShape[0] == kPixels, "index per pixel");
+static_assert(kTexelShape[2] == kHeight && kTexelShape[3] == kWidth, "texel planes per pixel");
 constexpr int kFrameHeight = kFrameShape[1];
 constexpr int kFrameWidth = kFrameShape[2];
 constexpr size_t kFrameBytes = static_cast<size_t>(kFrameHeight) * kFrameWidth * 3;
@@ -125,8 +126,10 @@ static_assert(kFrameWidth == APP_DISPLAY_WIDTH && kFrameHeight == APP_DISPLAY_HE
               "the exported frame does not match the board's display");
 #endif
 
-// Tiling G-buffer (NPU inputs), 672 kB in the DTCM.
-alignas(16) int32_t g_index[kPixels];
+// Tiling G-buffer (NPU inputs), 576 kB in the DTCM, plus the texel index
+// of every pixel for the reference check and the probe command.
+alignas(16) int8_t g_texel[3 * kPixels];
+alignas(16) int32_t g_index[kPixels] APP_POOL_ATTRIBUTES;
 alignas(16) int8_t g_parity[kPixels];
 alignas(16) int8_t g_edge[kPixels];
 alignas(16) int8_t g_inside[kPixels];
@@ -269,16 +272,13 @@ inline int8_t q_texture(float v) {
   return quantize<int8_t>(v, 1.0f / MODEL_TILE_INPUT0_SCALE, MODEL_TILE_INPUT0_ZERO_POINT,
                           MODEL_TILE_INPUT0_QMIN, MODEL_TILE_INPUT0_QMAX);
 }
-// The three masks share one range ([0, 1]): the quantized codes for 0 and 1.
-const int8_t kMaskZero = quantize<int8_t>(0.0f, 1.0f / MODEL_TILE_INPUT2_SCALE, MODEL_TILE_INPUT2_ZERO_POINT,
-                                          MODEL_TILE_INPUT2_QMIN, MODEL_TILE_INPUT2_QMAX);
-const int8_t kMaskOne = quantize<int8_t>(1.0f, 1.0f / MODEL_TILE_INPUT2_SCALE, MODEL_TILE_INPUT2_ZERO_POINT,
-                                         MODEL_TILE_INPUT2_QMIN, MODEL_TILE_INPUT2_QMAX);
+// The three masks are bool tensors: one byte per pixel, 0 or 1.
+constexpr int8_t kMaskZero = 0, kMaskOne = 1;
 
 void quantize_colors() {
   const Color* c[4] = {&g_settings.tile_a, &g_settings.tile_b, &g_settings.edge, &g_settings.background};
-  const float scales[4] = {MODEL_TILE_INPUT5_SCALE, MODEL_TILE_INPUT6_SCALE, MODEL_TILE_INPUT7_SCALE, MODEL_TILE_INPUT8_SCALE};
-  const int zps[4] = {MODEL_TILE_INPUT5_ZERO_POINT, MODEL_TILE_INPUT6_ZERO_POINT, MODEL_TILE_INPUT7_ZERO_POINT, MODEL_TILE_INPUT8_ZERO_POINT};
+  const float scales[4] = {MODEL_TILE_INPUT4_SCALE, MODEL_TILE_INPUT5_SCALE, MODEL_TILE_INPUT6_SCALE, MODEL_TILE_INPUT7_SCALE};
+  const int zps[4] = {MODEL_TILE_INPUT4_ZERO_POINT, MODEL_TILE_INPUT5_ZERO_POINT, MODEL_TILE_INPUT6_ZERO_POINT, MODEL_TILE_INPUT7_ZERO_POINT};
   for (int i = 0; i < 4; ++i) {
     g_colors[i][0] = quantize<int8_t>(c[i]->r, 1.0f / scales[i], zps[i], -128, 127);
     g_colors[i][1] = quantize<int8_t>(c[i]->g, 1.0f / scales[i], zps[i], -128, 127);
@@ -287,23 +287,38 @@ void quantize_colors() {
 }
 
 // A procedural stand-in for the camera frame: soft colour bands, a ring and
-// a checker patch, drifting with time so the tiles visibly "play video".
-void update_texture(float t) {
+// a checker patch, built once; per frame it scrolls (a row and column
+// rotation) so the tiles visibly "play video".
+alignas(16) int8_t g_texture_base[kTexels * 3];
+
+void build_texture() {
   constexpr int T = kTextureSize;
   for (int y = 0; y < T; ++y) {
     for (int x = 0; x < T; ++x) {
       float u = (x + 0.5f) / T, v = (y + 0.5f) / T;
-      float r = 0.5f + 0.5f * sinf(6.2832f * (u + 0.13f * t));
-      float g = 0.5f + 0.5f * sinf(6.2832f * (v - 0.09f * t) + 2.0f);
-      float b = 0.5f + 0.5f * sinf(6.2832f * (u + v) * 0.5f + 0.3f * t);
-      float dx = u - 0.5f - 0.2f * cosf(0.7f * t), dy = v - 0.5f - 0.2f * sinf(0.7f * t);
+      float r = 0.5f + 0.5f * sinf(6.2832f * u);
+      float g = 0.5f + 0.5f * sinf(6.2832f * v + 2.0f);
+      float b = 0.5f + 0.5f * sinf(6.2832f * (u + v) * 0.5f);
+      float dx = u - 0.5f, dy = v - 0.5f;
       float d = sqrtf(dx * dx + dy * dy);
       if (d > 0.16f && d < 0.22f) { r = 1.0f; g = 1.0f; b = 0.9f; }  // bright ring
       if (((x / 16) + (y / 16)) % 2 == 0 && u > 0.7f && v > 0.7f) { r *= 0.3f; g *= 0.3f; b *= 0.3f; }  // checker corner
-      int8_t* px = &g_texture[(y * T + x) * 3];
-      px[0] = q_texture(r);
-      px[1] = q_texture(g);
-      px[2] = q_texture(b);
+      g_texture_base[0 * kTexels + y * T + x] = q_texture(r);
+      g_texture_base[1 * kTexels + y * T + x] = q_texture(g);
+      g_texture_base[2 * kTexels + y * T + x] = q_texture(b);
+    }
+  }
+}
+
+void update_texture(float t) {
+  constexpr int T = kTextureSize;
+  int shift_y = static_cast<int>(t * 9.0f) % T, shift_x = static_cast<int>(t * 13.0f) % T;
+  for (int c = 0; c < 3; ++c) {
+    for (int y = 0; y < T; ++y) {
+      const int8_t* src = &g_texture_base[c * kTexels + ((y + shift_y) % T) * T];
+      int8_t* dst = &g_texture[c * kTexels + y * T];
+      memcpy(dst, src + shift_x, T - shift_x);
+      memcpy(dst + (T - shift_x), src, shift_x);
     }
   }
 }
@@ -320,6 +335,7 @@ inline uint32_t cycles() { return DWT->CYCCNT; }
 inline float us(uint32_t c) { return static_cast<float>(c) * 1.0e6f / static_cast<float>(SystemCoreClock); }
 
 uint32_t g_io_copy_cycles = 0;
+const uint8_t* g_last_frame = nullptr;  // the frame most recently presented
 uint8_t* g_frame_target = nullptr;
 uint32_t g_frame_target_free_after = 0;
 uint32_t g_vsync_wait_cycles = 0;
@@ -404,7 +420,11 @@ GeometryStats geometry_pass(float time) {
     float32x4_t n = vfmaq_f32(vmulq_f32(px, px), py, py);
     mve_pred16_t inside = vcmpltq_n_f32(n, 1.0f);
     stats.inside_pixels += __builtin_popcount(inside & 0x1111);
-    n = vminnmq_f32(n, vdupq_n_f32(0.99f));
+    // Outside lanes are masked out by the NPU; park them at the origin so
+    // they converge at once instead of pinning the vector to the round cap.
+    px = vpselq_f32(px, zero, inside);
+    py = vpselq_f32(py, zero, inside);
+    n = vpselq_f32(n, zero, inside);
 
     // To the hyperboloid: (2 p / (1 - n), (1 + n) / (1 - n)).
     float32x4_t inv = rcp4(vsubq_f32(one, n));
@@ -449,7 +469,13 @@ GeometryStats geometry_pass(float time) {
     tv = vsubq_f32(tv, vrndmq_f32(tv));
     int32x4_t iu = vminq_s32(vcvtq_s32_f32(vmulq_f32(tu, tex_size)), tex_max);
     int32x4_t iv = vminq_s32(vcvtq_s32_f32(vmulq_f32(tv, tex_size)), tex_max);
-    vst1q_s32(g_index + p, vaddq_s32(vmulq_n_s32(iv, kTextureSize), iu));
+    int32x4_t index = vaddq_s32(vmulq_n_s32(iv, kTextureSize), iu);
+    vst1q_s32(g_index + p, index);
+    // The texture lookup: one gather load per colour plane, four texels at a time.
+    uint32x4_t offset = vreinterpretq_u32_s32(index);
+    vstrbq_s32(g_texel + p, vldrbq_gather_offset_s32(g_texture, offset));
+    vstrbq_s32(g_texel + kPixels + p, vldrbq_gather_offset_s32(g_texture + kTexels, offset));
+    vstrbq_s32(g_texel + 2 * kPixels + p, vldrbq_gather_offset_s32(g_texture + 2 * kTexels, offset));
 
     // Masks as the quantized codes for 1 and 0 (int8 tensors).
     const int32x4_t q_one = vdupq_n_s32(kMaskOne), q_zero = vdupq_n_s32(kMaskZero);
@@ -466,10 +492,8 @@ GeometryStats geometry_pass(float time) {
 // ---------------------------------------------------------------------------
 void reference_color(int x, int y, float rgb[3]) {
   int p = y * kWidth + x;
-  float parity = dequantize(g_parity[p], MODEL_TILE_INPUT2_SCALE, MODEL_TILE_INPUT2_ZERO_POINT);
-  float edge = dequantize(g_edge[p], MODEL_TILE_INPUT3_SCALE, MODEL_TILE_INPUT3_ZERO_POINT);
-  float inside = dequantize(g_inside[p], MODEL_TILE_INPUT4_SCALE, MODEL_TILE_INPUT4_ZERO_POINT);
-  const int8_t* tx = &g_texture[g_index[p] * 3];
+  float parity = g_parity[p] ? 1.0f : 0.0f, edge = g_edge[p] ? 1.0f : 0.0f, inside = g_inside[p] ? 1.0f : 0.0f;
+  const int8_t tx[3] = {g_texel[p], g_texel[kPixels + p], g_texel[2 * kPixels + p]};
   const Color& a = g_settings.tile_a;
   const Color& b = g_settings.tile_b;
   const float tile[3] = {a.r * parity + b.r * (1 - parity), a.g * parity + b.g * (1 - parity), a.b * parity + b.b * (1 - parity)};
@@ -498,8 +522,23 @@ void reference_frame_pixel(int fx, int fy, float rgb[3]) {  // after the bilinea
   }
 }
 
+// Diagnostic: a frame pixel, its G-buffer entry, the reference and the NPU's colour.
+void print_pixel(const uint8_t* frame, int x, int y) {
+  x = std::min(std::max(x, 0), kFrameWidth - 1);
+  y = std::min(std::max(y, 0), kFrameHeight - 1);
+  int sx = x / kUpscale, sy = y / kUpscale, p = sy * kWidth + sx;
+  float ref[3];
+  reference_frame_pixel(x, y, ref);
+  const uint8_t* px = frame + (static_cast<size_t>(y) * kFrameWidth + x) * 3;
+  const int8_t tx[3] = {g_texel[p], g_texel[kPixels + p], g_texel[2 * kPixels + p]};
+  printf("  pixel (%d,%d) <- gbuf (%d,%d): index %ld texel %d,%d,%d parity %d edge %d inside %d | ref %.0f,%.0f,%.0f got %u,%u,%u\n",
+         x, y, sx, sy, static_cast<long>(g_index[p]), tx[0], tx[1], tx[2], g_parity[p], g_edge[p], g_inside[p],
+         ref[0] * 255, ref[1] * 255, ref[2] * 255, px[0], px[1], px[2]);
+}
+
 float check_frame(const uint8_t* frame) {
   float max_err = 0.0f;
+  int worst_x = 0, worst_y = 0;
   for (int gy = 0; gy < 20; ++gy) {
     for (int gx = 0; gx < 12; ++gx) {
       int x = gx * kFrameWidth / 12 + kFrameWidth / 24, y = gy * kFrameHeight / 20 + kFrameHeight / 40;
@@ -508,10 +547,16 @@ float check_frame(const uint8_t* frame) {
       const uint8_t* px = frame + (static_cast<size_t>(y) * kFrameWidth + x) * 3;
       for (int c = 0; c < 3; ++c) {
         float got = dequantize(static_cast<int>(px[c]) - 128, MODEL_TILE_OUTPUT0_SCALE, MODEL_TILE_OUTPUT0_ZERO_POINT);
-        max_err = std::max(max_err, fabsf(got - ref[c]));
+        float err = fabsf(got - ref[c]);
+        if (err > max_err) {
+          max_err = err;
+          worst_x = x;
+          worst_y = y;
+        }
       }
     }
   }
+  if (max_err > 8.0f / 255.0f) print_pixel(frame, worst_x, worst_y);
   return max_err;
 }
 
@@ -571,7 +616,7 @@ int handle_command(char* line) {
   char* arg = strtok(nullptr, " \t");
   if (strcmp(cmd, "help") == 0) {
     printf("commands: symmetry 0|1|2 | geometry disk|plane | animation on|off | edge <color> | background <color> | "
-           "tile a|b <color> | zoom <f> | reset | status  (colours: names or r,g,b)\n");
+           "tile a|b <color> | zoom <f> | reset | status | preview | probe x y  (colours: names or r,g,b)\n");
   } else if (strcmp(cmd, "symmetry") == 0 && arg) {
     g_settings.symmetry = std::min(std::max(atoi(arg), 0), 2);
     printf("symmetry changed\n");
@@ -610,6 +655,11 @@ int handle_command(char* line) {
     g_settings = Settings();
     printf("settings reset\n");
     return 7;
+  } else if (strcmp(cmd, "preview") == 0) {
+    if (g_last_frame) ascii_preview(g_last_frame);
+  } else if (strcmp(cmd, "probe") == 0 && arg) {
+    char* ys = strtok(nullptr, " \t");
+    if (g_last_frame && ys) print_pixel(g_last_frame, atoi(arg), atoi(ys));
   } else if (strcmp(cmd, "status") == 0) {
     printf("symmetry %d, geometry %s, animation %s, zoom %.2f\n", g_settings.symmetry,
            g_settings.geometry ? "plane" : "disk", g_settings.animation ? "on" : "off", g_settings.zoom);
@@ -685,13 +735,13 @@ extern "C" int app_main(void) {
   apply_symmetry();
   build_start_points();
   quantize_colors();
+  build_texture();
   update_texture(0.0f);
 
-  TensorBox texture_t(ScalarType::Char, kTextureShape, 2, g_texture);
-  TensorBox index_t(ScalarType::Int, kIndexShape, 1, g_index);
-  TensorBox parity_t(ScalarType::Char, kMaskShape, 4, g_parity);
-  TensorBox edge_t(ScalarType::Char, kMaskShape, 4, g_edge);
-  TensorBox inside_t(ScalarType::Char, kMaskShape, 4, g_inside);
+  TensorBox texel_t(ScalarType::Char, kTexelShape, 4, g_texel);
+  TensorBox parity_t(ScalarType::Bool, kMaskShape, 4, g_parity);
+  TensorBox edge_t(ScalarType::Bool, kMaskShape, 4, g_edge);
+  TensorBox inside_t(ScalarType::Bool, kMaskShape, 4, g_inside);
   TensorBox tile_a_t(ScalarType::Char, kColorShape, 4, g_colors[0]);
   TensorBox tile_b_t(ScalarType::Char, kColorShape, 4, g_colors[1]);
   TensorBox edge_color_t(ScalarType::Char, kColorShape, 4, g_colors[2]);
@@ -749,7 +799,7 @@ extern "C" int app_main(void) {
     g_io_copy_cycles = 0;
     g_vsync_wait_cycles = 0;
     g_frame_target = g_framebuffer[back];
-    auto out = module.execute(MODEL_TILE_METHOD, {texture_t.evalue(), index_t.evalue(), parity_t.evalue(), edge_t.evalue(),
+    auto out = module.execute(MODEL_TILE_METHOD, {texel_t.evalue(), parity_t.evalue(), edge_t.evalue(),
                                                   inside_t.evalue(), tile_a_t.evalue(), tile_b_t.evalue(),
                                                   edge_color_t.evalue(), background_t.evalue()});
     g_frame_target = nullptr;
@@ -771,6 +821,7 @@ extern "C" int app_main(void) {
       back ^= 1;
     }
 #endif
+    g_last_frame = frame_rgb;
 
     // 5. Check on reported frames.
     if ((frame % report_every) == report_every - 1) {

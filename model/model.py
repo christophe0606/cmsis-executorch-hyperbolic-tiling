@@ -12,10 +12,13 @@ render demo splits a 3D pipeline:
                 every pixel. It writes a "tiling G-buffer" at TILE_HEIGHT x
                 TILE_WIDTH: a texel index, a parity mask, an edge mask and
                 an inside-the-disk mask.
-  NPU           tile(...): the texture lookup as a gather (TOSA GATHER on the
-                U85), the tile / edge / background colouring as masked
-                blends, then a 2x bilinear upscale to the 480x800 panel and
-                the transpose to interleaved RGB888.
+  NPU           tile(...): the tile / edge / background colouring as masked
+                blends over the gathered texels, then a 2x bilinear upscale
+                to the 480x800 panel and the transpose to interleaved RGB888.
+
+The texture lookup itself stays on the CPU as Helium gather loads: lowering
+it as torch.index_select (TOSA GATHER) compiled and ran on the U85 but
+returned the wrong texels on the board (see documentation/hyperbolic-tiling.md).
 
 The colours are method inputs, so the console commands that stand in for the
 original demo's MCP tools change them without a re-export.
@@ -51,20 +54,22 @@ class MethodSpec:
 class TileStage(nn.Module):
     """Compose the frame from the tiling G-buffer and the texture.
 
-    texture   (T*T, 3)      RGB texels in [0, 1], row-major
-    index     (H*W,) int32  texel index of every pixel (the CPU's texture coordinate)
-    parity    (1, 1, H, W)  1 for tile A, 0 for tile B
-    edge      (1, 1, H, W)  1 on a tile edge
-    inside    (1, 1, H, W)  1 inside the disk, 0 for the background
+    texel     (1, 3, H, W)  the texture sample of every pixel, RGB planes in [0, 1]
+    parity    (1, 1, H, W)  bool: True for tile A, False for tile B
+    edge      (1, 1, H, W)  bool: True on a tile edge
+    inside    (1, 1, H, W)  bool: True inside the disk, False for the background
     tile_a, tile_b, edge_color, background   (1, 3, 1, 1) colours in [0, 1]
+
+    The masks select rather than multiply: a chain of int8 multiplies and
+    (1 - mask) subtractions lost up to 13 % at full brightness in the
+    quantized graph; selects are exact.
 
     Returns (1, H * UPSCALE, W * UPSCALE, 3) in [0, 1].
     """
 
     def forward(
         self,
-        texture: torch.Tensor,
-        index: torch.Tensor,
+        texel: torch.Tensor,
         parity: torch.Tensor,
         edge: torch.Tensor,
         inside: torch.Tensor,
@@ -73,33 +78,30 @@ class TileStage(nn.Module):
         edge_color: torch.Tensor,
         background: torch.Tensor,
     ) -> torch.Tensor:
-        texel = torch.index_select(texture, 0, index)  # (H*W, 3): the texture lookup
-        texel = texel.reshape(1, TILE_HEIGHT, TILE_WIDTH, 3).permute(0, 3, 1, 2)  # (1, 3, H, W)
-        tile = tile_a * parity + tile_b * (1.0 - parity)  # the tile's own colour
+        tile = torch.where(parity, tile_a, tile_b)  # the tile's own colour, broadcast to (1, 3, H, W)
         color = 0.5 * texel + 0.5 * tile  # as the shader: half texture, half tile colour
-        color = edge_color * edge + color * (1.0 - edge)
-        color = color * inside + background * (1.0 - inside)
+        color = torch.where(edge, edge_color, color)
+        color = torch.where(inside, color, background)
         frame = nn.functional.interpolate(color, scale_factor=UPSCALE, mode="bilinear", align_corners=False)
         return frame.permute(0, 2, 3, 1)  # NCHW -> NHWC: interleaved RGB rows, the display's RGB888 layout
 
 
 def _tile_samples() -> list[tuple[torch.Tensor, ...]]:
-    """Calibration that pins every range to [0, 1]; the index is int32 and not quantized."""
-    h, w, t = TILE_HEIGHT, TILE_WIDTH, TEXTURE_SIZE
+    """Calibration that pins every range to [0, 1]."""
+    h, w = TILE_HEIGHT, TILE_WIDTH
     g = torch.Generator().manual_seed(2)
 
     def sample(fill: float | None):
-        texture = torch.rand(t * t, 3, generator=g)
-        index = torch.randint(0, t * t, (h * w,), generator=g, dtype=torch.int32)
-        masks = [torch.randint(0, 2, (1, 1, h, w), generator=g).float() for _ in range(3)]
+        texel = torch.rand(1, 3, h, w, generator=g)
+        masks = [torch.randint(0, 2, (1, 1, h, w), generator=g).bool() for _ in range(3)]
         colors = [torch.rand(1, 3, 1, 1, generator=g) for _ in range(4)]
         if fill is not None:
-            texture.fill_(fill)
+            texel.fill_(fill)
             for m in masks:
-                m.fill_(fill)
+                m.fill_(fill >= 0.5)
             for c in colors:
                 c.fill_(fill)
-        return (texture, index, *masks, *colors)
+        return (texel, *masks, *colors)
 
     return [sample(1.0), sample(0.0), sample(None), sample(None)]
 

@@ -134,17 +134,33 @@ def quantize_method(spec, method):
     import torch
     from executorch.backends.arm.quantizer import (
         EthosUQuantizer,
+        QuantizationConfig,
         get_symmetric_a16w8_quantization_config,
         get_symmetric_quantization_config,
     )
     from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+
+    from torchao.quantization.pt2e import MinMaxObserver
+    from torchao.quantization.pt2e.quantizer import QuantizationSpec
 
     graph = torch.export.export(method.module, method.example).module()
     quantizer = EthosUQuantizer(spec)
     if method.activation_bits == 16:
         quantizer.set_global(get_symmetric_a16w8_quantization_config(is_per_channel=True))
     else:
-        quantizer.set_global(get_symmetric_quantization_config(is_per_channel=True))
+        config = get_symmetric_quantization_config(is_per_channel=True)
+        # Min/max observers instead of the histogram observer: the calibration
+        # samples pin the ranges deliberately (see model.py), and the histogram
+        # observer clips the extremes (full-brightness colours came out at 86 %).
+        act = QuantizationSpec(
+            dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            qscheme=torch.per_tensor_affine,
+            observer_or_fake_quant_ctr=MinMaxObserver.with_args(eps=2**-16),
+        )
+        config = QuantizationConfig(act, act, config.weight, config.bias)
+        quantizer.set_global(config)
     prepared = prepare_pt2e(graph, quantizer)
     with torch.no_grad():
         for sample in method.samples:
@@ -212,7 +228,7 @@ def _output_shape(program, index: int) -> tuple[int, ...]:
 def _tensor_desc(shape, dtype, scale, zp, qmin, qmax) -> dict:
     import torch
 
-    ctype = {torch.int8: "int8_t", torch.int16: "int16_t", torch.uint8: "uint8_t", torch.int32: "int32_t", torch.int64: "int64_t"}[dtype]
+    ctype = {torch.int8: "int8_t", torch.int16: "int16_t", torch.uint8: "uint8_t", torch.int32: "int32_t", torch.int64: "int64_t", torch.bool: "bool"}[dtype]
     return {
         "shape": [int(d) for d in shape],
         "dtype": str(dtype).replace("torch.", ""),

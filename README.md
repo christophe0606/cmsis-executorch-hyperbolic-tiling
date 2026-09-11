@@ -4,9 +4,9 @@ The Arm ExecuTorch example, on its `hackathon` branch with the Alif board
 added. One CMSIS solution runs an ExecuTorch program on the Ethos-U85 of the **Alif Ensemble E8 DevKit** (Cortex-M55
 HP core) and on the **Corstone-320 FVP**; you switch between them by
 target-type. On this branch the program is the **hyperbolic tiling**: a port
-of christophe0606's GLSL shader demo, with the reflection geometry on the
-Cortex-M55 with Helium, the texture gather, colouring and upscaling on the
-NPU, the DevKit's LCD showing it and the demo's MCP tools as console
+of christophe0606's GLSL shader demo, with the reflection geometry and the
+texture gather on the Cortex-M55 with Helium, the compositing and upscaling
+on the NPU, the DevKit's LCD showing it and the demo's MCP tools as console
 commands; see [documentation/hyperbolic-tiling.md](documentation/hyperbolic-tiling.md).
 The `npu-render` branch has the 3D-pipeline demo this builds on
 ([documentation/npu-render.md](documentation/npu-render.md)). The model is exported from PyTorch in three steps: the

@@ -18,8 +18,8 @@ texture read at a computed coordinate. So:
 
 | Stage | Where | What |
 |-------|-------|------|
-| Möbius animation, reflections into the fundamental triangle with early exit, reflection count (tile parity), edge-distance test, Poincaré coordinates, texture coordinate | CPU, Helium, four pixels per vector | writes a 240x400 "tiling G-buffer": texel index (int32), parity, edge and inside masks (int8) |
-| Texture lookup (gather), tile A/B colouring, edge and background blending, 2x bilinear upscale, NHWC transpose | NPU, one ExecuTorch method `tile` in [`model/model.py`](../model/model.py) | 800x480x3 RGB888 frame, copied straight into the back frame buffer |
+| Möbius animation, reflections into the fundamental triangle with early exit, reflection count (tile parity), edge-distance test, Poincaré coordinates, texture coordinate, texture lookup | CPU, Helium, four pixels per vector | writes a 240x400 "tiling G-buffer": the gathered texel (3 int8 planes), parity, edge and inside masks (bool) |
+| Tile A/B colouring, edge and background compositing, 2x bilinear upscale, NHWC transpose | NPU, one ExecuTorch method `tile` in [`model/model.py`](../model/model.py) | 800x480x3 RGB888 frame, copied straight into the back frame buffer |
 
 The reflection loop is written branch-free per lane, as the shader's own
 `min(0, hdot)` formulation already is: a predicated counter tracks the
@@ -27,11 +27,25 @@ number of reflections, and a vector iterates until no lane moved in a
 round. Rounds are counted and reported. Vector reciprocals (MVE has no
 divide) use the bit-hack seed and two Newton steps; `fract` uses `vrndm`.
 
-The texture read is `torch.index_select` on a `(128*128, 3)` texture with a
-rank-1 int32 index, which the Arm backend lowers to TOSA GATHER; the U85
-runs it natively. Vela reports 13 NPU operators, 0 CPU operators, 2.6 MB of
-scratch. Tile, edge and background colours are method inputs, so the
-console commands change them without a re-export.
+The texture read stays on the CPU as Helium gather loads (`vldrb` with
+vector offsets, one per colour plane, four texels per instruction), so the
+G-buffer carries the texel rather than its index. The NPU version, a
+`torch.index_select` on the texture that the Arm backend lowers to TOSA
+GATHER, compiled with Vela and ran on the U85, but returned the wrong
+texels on the board: with a constant index every pixel still got a
+different, per-position grey value, in both the row-major and the planar
+texture layout. That is left as an open question about the backend's
+gather lowering; the Helium gather costs well under a millisecond.
+
+The compositing uses `torch.where` selects on bool masks rather than
+`mask * a + (1 - mask) * b`: the multiply-and-subtract chain lost up to
+13 % at full brightness once quantized to int8 (reproduced on the host with
+the fake-quantized graph), the selects are exact. The exporter also
+calibrates int8 activations with min/max observers instead of the Arm
+quantizer's histogram observer, which clipped the pinned [0, 1] ranges.
+Vela reports 11 NPU operators, 0 CPU operators, 2.6 MB of scratch. Tile,
+edge and background colours are method inputs, so the console commands
+change them without a re-export.
 
 ## What replaces the MCP tools and the camera
 
@@ -74,4 +88,22 @@ pyocd load --cbuild-run out/cmsis-executorch+DevKit-E8.cbuild-run.yml   # see th
 Every 120 frames the console prints the geometry time with the average
 number of reflection rounds per vector, the NPU time with its frame copy,
 the frame rate and the worst deviation of the NPU frame from a float
-reference of the composition on a 12x20 pixel grid.
+reference of the composition on a 12x20 pixel grid. `preview` prints the
+shown frame as ASCII, `probe x y` one pixel with its G-buffer entry.
+
+## Measured on the DevKit-E8
+
+| Stage | Where | Time |
+|-------|-------|------|
+| Geometry pass, 96 000 pixels, ~3 reflection rounds per vector on average with early exit, including the texture gather | CPU, Helium | 35 ms |
+| Texture scroll | CPU | 0.1 ms |
+| Compositing + 2x bilinear upscale to 480x800 | NPU | 7.6 ms, 2.5 ms of it the frame copy |
+| Frame | | 44 ms, 23 fps |
+
+The NPU frame matches the float reference within 1/255 across the
+presets. The geometry pass runs at about 2.6 cycles per vector instruction,
+which is the Cortex-M55's Helium issue rate for this mix of float
+multiply-accumulates and predicated operations; a faster frame needs fewer
+pixels (a 120x200 geometry with a 4x upscale) rather than a tighter loop.
+The original shader also supersamples 4x4 per pixel; this port relies on
+the bilinear upscale instead.
