@@ -1,9 +1,12 @@
 # ExecuTorch on Ethos-U85: hackathon guide
 
 The Arm ExecuTorch example, on its `hackathon` branch with the Alif board
-added. One CMSIS solution runs a tiny int8 CNN on the Ethos-U85 of the **Alif Ensemble E8 DevKit** (Cortex-M55
+added. One CMSIS solution runs an ExecuTorch program on the Ethos-U85 of the **Alif Ensemble E8 DevKit** (Cortex-M55
 HP core) and on the **Corstone-320 FVP**; you switch between them by
-target-type. The model is exported from PyTorch in three steps: the
+target-type. The program is the **NPU render** prototype: the NPU does the
+vertex transform, the deferred shading and the upscaling of a small 3D scene,
+the CPU rasterizes in between with Helium, and the DevKit's LCD shows it;
+see [documentation/npu-render.md](documentation/npu-render.md). The model is exported from PyTorch in three steps: the
 CMSIS-Toolbox describes the target, `create_ai_layer.py` turns that into the
 AI layer, the toolbox builds the application. This page takes you from an
 empty machine to a debug session on the board. Everything about the example
@@ -111,15 +114,20 @@ Repeat this after another project has reprogrammed the table.
        Arch:       v2.0.0
        MACs/cc:    256
        Cmd stream: v1
-   ExecuTorch Ethos-U85 example: 8896 byte model
-   Output: 10 element(s): 0.0079 0.0459 0.0475 -0.0475 0.0791 0.0411 -0.0285 -0.0744 -0.2246 -0.0016
-   Test_result: PASS
+   NPU render: Ethos-U85 as a tensor coprocessor for a 3D pipeline, Helium on the CPU
+     program: 7696 bytes, 2 objects x 512 vertices, G-buffer 240x400 int8, frame 480x800 RGB888
+     scene: torus 512 + sphere 480 vertices, 1920 triangles
+     display: 480x800 RGB888 on (status 0)
+   frames 0..119 avg: vertex-NPU 148 us (copy 43) | post-vertex 182 us | raster 9766 us (...) | shade-NPU 8118 us (frame copy 2531, vsync wait 2) | check 1752 us | frame 18.9 ms = 53.0 fps | max err 1.6/255
    ```
 
-3. Set a breakpoint after `module.forward(input)` in `src/app_main.cpp` and
-   inspect the output tensor, or ask the CMSIS Developer Assistant to do it:
-   "Build for the DevKit-E8, load it, break after the inference and show me
-   the output logits."
+   and the board's LCD shows a lit, fogged torus with a sphere orbiting it,
+   shaded and upscaled by the NPU, rasterized by the M55 with Helium.
+
+3. Set a breakpoint after `module.execute(MODEL_SHADE_METHOD, ...)` in
+   `src/app_main.cpp` and inspect the G-buffer or the frame buffer, or ask
+   the CMSIS Developer Assistant to do it: "Build for the DevKit-E8, load it,
+   break after the shade method and read a row of the back frame buffer."
 
 **FVP instead of the board:** choose the **SSE-320-U85** target-type and click
 **Run** or **Debug**; the same output appears in the terminal. On macOS the
@@ -137,6 +145,14 @@ target-set to `FVP_Corstone_SSE-320`.
   until it is power-cycled.
 - **No console output:** SW4 is still on `SEUART`, or the port was opened
   before the switch was moved. Set `UART4` and reopen the port.
+- **The board hard-faults right after a flash, before printing anything:**
+  the J-Link loader (`CMSIS Load`, `JLinkExe LoadFile`) can corrupt the
+  first 16 bytes of the image in MRAM and report `Programming failed @
+  address 0x80200004 (block verification error)`; the reset vector then reads
+  as code bytes. Program with pyOCD instead (`pyocd load --cbuild-run
+  out/cmsis-executorch+DevKit-E8.cbuild-run.yml`, or the CMSIS Developer
+  Assistant's flash tool), which uses the pack's flash algorithm and leaves
+  the Secure Enclave's table of contents untouched, then Debug or reset.
 - **`app-write-mram` gets no answer:** press reset while it waits, check SW4
   is on `SEUART`, close any terminal holding the port.
 - **"torch is not installed":** run the task **Setup Python virtual

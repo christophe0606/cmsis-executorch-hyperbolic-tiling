@@ -105,7 +105,7 @@ solution:
   # create_ai_layer.py picks it up on its next run.
   # https://open-cmsis-pack.github.io/cmsis-toolbox/build-overview/#mlops-information
   mlops:
-    description: TinyCNN int8 image classifier for Ethos-U85
+    description: NPU render, the tensor stages of a 3D pipeline (vertex transform, deferred shading) for Ethos-U85
     npu:
       type: Ethos-U85 # explicit: the Ensemble pack lists an Ethos-U55 first
     vela:
@@ -117,7 +117,7 @@ solution:
       memory: Shared_Sram
     model:
       clayer: $AI-Layer$
-      name: TinyCNN
+      name: NpuRender
     hardware:
       target: DevKit-E8 # named explicitly: the released 2.14.1 detects no hardware target
     simulator:

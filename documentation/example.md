@@ -6,6 +6,12 @@ The pack [`PyTorch::ExecuTorch`](https://www.keil.arm.com/packs/executorch-pytor
 provides the source code components to build the ExecuTorch runtime, required operators, and Ethos-U backend.
 The build process uses the [CMSIS-Toolbox 2.14.1](https://open-cmsis-pack.github.io/cmsis-toolbox/) or higher.
 
+> [!Note]
+> On this branch the model is the **NPU render** prototype (two methods,
+> vertex transform and deferred shading, with quantized IO) rather than the
+> TinyCNN classifier described below; the flow is the same. See
+> [npu-render.md](npu-render.md) for what it does and what it measures.
+
 This example application targets the Arm Corstone-320 reference platform with
 an Ethos-U85 NPU, simulated on the Arm FVP, and the
 [Alif Ensemble E8 DevKit](https://alifsemi.com/support/kits/ensemble-e8devkit/),

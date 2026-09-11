@@ -24,6 +24,9 @@ project:
 
   groups:
     - group: App
+      # The CPU rasterizer is the frame-time reference for the NPU stages;
+      # keep it optimized in the Debug build too.
+      optimize: speed
       files:
         - file: ./src/app_main.cpp
         # EmbeddedModule: ExecuTorch's Module class without the POSIX file

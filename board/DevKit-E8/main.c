@@ -27,6 +27,27 @@
 #include "main.h"
 
 #include "se_services_port.h"
+#include "board_display.h"
+
+/* VBAT power control bits for the MIPI TX DPHY and its PLL (pack layer main.c) */
+#define VBAT_PWR_CTRL_TX_DPHY_PWR_MASK        (1U <<  0) /* Mask off the power supply for MIPI TX DPHY */
+#define VBAT_PWR_CTRL_TX_DPHY_ISO             (1U <<  1) /* Enable isolation for MIPI TX DPHY */
+#define VBAT_PWR_CTRL_RX_DPHY_PWR_MASK        (1U <<  4) /* Mask off the power supply for MIPI RX DPHY */
+#define VBAT_PWR_CTRL_RX_DPHY_ISO             (1U <<  5) /* Enable isolation for MIPI RX DPHY */
+#define VBAT_PWR_CTRL_DPHY_PLL_PWR_MASK       (1U <<  8) /* Mask off the power supply for MIPI PLL */
+#define VBAT_PWR_CTRL_DPHY_PLL_ISO            (1U <<  9) /* Enable isolation for MIPI PLL */
+#define VBAT_PWR_CTRL_DPHY_VPH_1P8_PWR_BYP_EN (1U << 12) /* dphy vph 1p8 power bypass enable */
+
+/*
+  Power up the MIPI DPHY (the display's physical layer), as the pack's
+  DevKit-e8 layer does in its vbat_init().
+*/
+static void dphy_power_init(void)
+{
+    VBAT->PWR_CTRL &= ~(VBAT_PWR_CTRL_TX_DPHY_PWR_MASK | VBAT_PWR_CTRL_RX_DPHY_PWR_MASK |
+                        VBAT_PWR_CTRL_DPHY_PLL_PWR_MASK | VBAT_PWR_CTRL_DPHY_VPH_1P8_PWR_BYP_EN);
+    VBAT->PWR_CTRL &= ~(VBAT_PWR_CTRL_TX_DPHY_ISO | VBAT_PWR_CTRL_RX_DPHY_ISO | VBAT_PWR_CTRL_DPHY_PLL_ISO);
+}
 
 int main(void)
 {
@@ -41,6 +62,9 @@ int main(void)
 
     /* Request the clocks the SE has to enable for this core */
     board_clocks_config(CLKEN_HFOSC_MASK | CLKEN_CLK_100M_MASK);
+
+    /* Power up the MIPI DPHY before the display driver touches it */
+    dphy_power_init();
 
     /* Initialize STDIO (UART4 on the PRG USB connector) */
     stdio_init();

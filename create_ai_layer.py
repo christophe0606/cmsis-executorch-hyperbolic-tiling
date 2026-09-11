@@ -13,15 +13,22 @@ Step 2 of the three-step flow:
 
 The *.cbuild-mlops.yml is what CMSIS-Toolbox generates from the `mlops:` node
 of the csolution. This script reads the NPU and Vela settings from it, exports
-the PyTorch model in model/model.py for that NPU (quantize, delegate to
-Ethos-U, compile with Vela) and writes the complete AI layer into the
-directory of the clayer named under `model.clayer`:
+every method that model/model.py declares (quantize, delegate to Ethos-U,
+compile with Vela) into one ExecuTorch program and writes the complete AI
+layer into the directory of the clayer named under `model.clayer`:
 
     ai_layer.clayer.yml   runtime, kernel utilities and registration, Ethos-U
                           backend and the operator components the exported
                           program actually uses
     model_pte.c / .h      the ExecuTorch program as a C array
+    model_io.h            per method: input/output shapes, dtypes and the
+                          quantization scale / zero point of each tensor
     model.pte             the program itself, for inspection
+
+The methods take and return quantized tensors (int8 or int16): the float
+quantize / dequantize boundary that the Arm backend normally leaves on the CPU
+is removed with ExecuTorch's quantize-IO passes, and the parameters the CPU
+needs to produce and consume those tensors go into model_io.h.
 
 The script runs itself in the solution's .venv (see setup_venv.py) when it is
 started with an interpreter that has no torch.
@@ -122,38 +129,95 @@ def compile_spec(mlops: dict, mlops_dir: Path):
     return EthosUCompileSpec(**kwargs)
 
 
-def export_model(spec) -> bytes:
-    """Quantize model/model.py, delegate it to the Ethos-U and return the .pte."""
+def quantize_method(spec, method):
+    """PT2E-quantize one method's module for the Ethos-U: int8, or int16 activations with int8 weights."""
     import torch
-    from executorch.backends.arm.ethosu import EthosUPartitioner
-    from executorch.backends.arm.quantizer import EthosUQuantizer, get_symmetric_quantization_config
-    from executorch.exir import EdgeCompileConfig, ExecutorchBackendConfig, to_edge_transform_and_lower
+    from executorch.backends.arm.quantizer import (
+        EthosUQuantizer,
+        get_symmetric_a16w8_quantization_config,
+        get_symmetric_quantization_config,
+    )
     from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 
-    sys.path.insert(0, str(HERE / "model"))
-    from model import get_calibration_inputs, get_model
-
-    model, samples = get_model(), get_calibration_inputs()
-    example = (samples[0],)
-    graph = torch.export.export(model, example).module()
-
-    # Quantize the whole graph so the partitioner can move every node into the
-    # Ethos-U delegate; only a float<->int8 boundary stays on the CPU.
+    graph = torch.export.export(method.module, method.example).module()
     quantizer = EthosUQuantizer(spec)
-    quantizer.set_global(get_symmetric_quantization_config(is_per_channel=True))
+    if method.activation_bits == 16:
+        quantizer.set_global(get_symmetric_a16w8_quantization_config(is_per_channel=True))
+    else:
+        quantizer.set_global(get_symmetric_quantization_config(is_per_channel=True))
     prepared = prepare_pt2e(graph, quantizer)
     with torch.no_grad():
-        for sample in samples:
-            prepared(sample)  # calibrate
-    quantized = convert_pt2e(prepared)
+        for sample in method.samples:
+            prepared(*sample)  # calibrate
+    return convert_pt2e(prepared)
 
+
+def export_program(spec) -> tuple[bytes, dict]:
+    """Export every method of model/model.py into one .pte with quantized IO; returns the bytes and the IO description."""
+    import torch
+    from executorch.backends.arm.ethosu import EthosUPartitioner
+    from executorch.exir import EdgeCompileConfig, ExecutorchBackendConfig, to_edge_transform_and_lower
+    from executorch.exir.passes.quantize_io_pass import quantize_input, quantize_output
+
+    sys.path.insert(0, str(HERE / "model"))
+    from model import get_methods
+
+    methods = get_methods()
+    programs = {m.name: torch.export.export(quantize_method(spec, m), m.example) for m in methods}
     edge = to_edge_transform_and_lower(
-        torch.export.export(quantized, example),
-        partitioner=[EthosUPartitioner(spec)],
+        programs,
+        partitioner={name: [EthosUPartitioner(spec)] for name in programs},
         compile_config=EdgeCompileConfig(_check_ir_validity=False),
     )
-    program = edge.to_executorch(ExecutorchBackendConfig(extract_delegate_segments=False))
-    return bytes(program.buffer)
+
+    # Move the float<->int boundary out of the program: the methods then take
+    # and return the quantized tensors the delegate works on, and the CPU side
+    # quantizes / dequantizes with the parameters recorded here.
+    io = {}
+    for method in methods:
+        program = edge.exported_program(method.name)
+        inputs, outputs = [], []
+        for index, example in enumerate(method.example):
+            scale, zp, qmin, qmax, dtype = quantize_input(program, index)
+            inputs.append(_tensor_desc(tuple(example.shape), dtype, scale, zp, qmin, qmax))
+        for index in range(len(program.graph_signature.user_outputs)):
+            shape = _output_shape(program, index)
+            scale, zp, qmin, qmax, dtype = quantize_output(program, index)
+            outputs.append(_tensor_desc(shape, dtype, scale, zp, qmin, qmax))
+        io[method.name] = {"inputs": inputs, "outputs": outputs}
+
+    # Inputs stay the caller's buffers: without this the runtime plans memory
+    # for every input and memcpys the caller's tensors into it on each call
+    # (672 kB per frame for the G-buffer). Outputs stay planned.
+    from executorch.exir.passes import MemoryPlanningPass
+
+    program = edge.to_executorch(
+        ExecutorchBackendConfig(
+            extract_delegate_segments=False,
+            memory_planning_pass=MemoryPlanningPass(alloc_graph_input=False),
+        )
+    )
+    return bytes(program.buffer), io
+
+
+def _output_shape(program, index: int) -> tuple[int, ...]:
+    node = list(program.graph.output_node().args[0])[index]
+    return tuple(node.meta["val"].shape)
+
+
+def _tensor_desc(shape, dtype, scale, zp, qmin, qmax) -> dict:
+    import torch
+
+    ctype = {torch.int8: "int8_t", torch.int16: "int16_t", torch.uint8: "uint8_t", torch.int32: "int32_t"}[dtype]
+    return {
+        "shape": [int(d) for d in shape],
+        "dtype": str(dtype).replace("torch.", ""),
+        "ctype": ctype,
+        "scale": float(scale),
+        "zero_point": int(zp),
+        "qmin": int(qmin),
+        "qmax": int(qmax),
+    }
 
 
 def components(pte: bytes, pack: Path) -> tuple[list[str], list[str]]:
@@ -207,6 +271,43 @@ extern const unsigned long {SYMBOL}_size;
 """
 
 
+def io_header(io: dict) -> str:
+    """model_io.h: one macro block per method tensor, C-preprocessor friendly."""
+    lines = [
+        "// Generated by create_ai_layer.py -- do not edit.",
+        "// Quantized IO of every method in model_pte: shapes, C types and the",
+        "// affine quantization q = round(x / SCALE) + ZERO_POINT the CPU applies.",
+        "#pragma once",
+        "",
+    ]
+    for name, desc in io.items():
+        prefix = f"MODEL_{name.upper()}"
+        lines.append(f'#define {prefix}_METHOD "{name}"')
+        lines.append(f"#define {prefix}_NUM_INPUTS {len(desc['inputs'])}")
+        lines.append(f"#define {prefix}_NUM_OUTPUTS {len(desc['outputs'])}")
+        for kind in ("inputs", "outputs"):
+            for index, t in enumerate(desc[kind]):
+                p = f"{prefix}_{kind[:-1].upper()}{index}"
+                lines.append(f"#define {p}_NDIM {len(t['shape'])}")
+                lines.append(f"#define {p}_SHAPE {{{', '.join(str(d) for d in t['shape'])}}}")
+                lines.append(f"#define {p}_NUMEL {_numel(t['shape'])}")
+                lines.append(f"#define {p}_CTYPE {t['ctype']}")
+                lines.append(f"#define {p}_DTYPE_{t['dtype'].upper()} 1")
+                lines.append(f"#define {p}_SCALE {t['scale']!r}f")
+                lines.append(f"#define {p}_ZERO_POINT {t['zero_point']}")
+                lines.append(f"#define {p}_QMIN {t['qmin']}")
+                lines.append(f"#define {p}_QMAX {t['qmax']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _numel(shape) -> int:
+    n = 1
+    for d in shape:
+        n *= d
+    return n
+
+
 def clayer(mlops: dict, runtime: list[str], operators: list[str], mlops_file: Path, version: str) -> str:
     lines = [
         f"# Generated by create_ai_layer.py from {mlops_file.name} -- do not edit.",
@@ -234,6 +335,7 @@ def clayer(mlops: dict, runtime: list[str], operators: list[str], mlops_file: Pa
         "      files:",
         f"        - file: ./{SYMBOL}.c",
         f"        - file: ./{SYMBOL}.h",
+        "        - file: ./model_io.h",
         "",
     ]
     return "\n".join(lines)
@@ -251,7 +353,7 @@ def main() -> None:
     layer_file = mlops_file.parent / mlops["model"]["clayer"]
     layer_dir = layer_file.parent
 
-    pte = export_model(compile_spec(mlops, mlops_file.parent))
+    pte, io = export_program(compile_spec(mlops, mlops_file.parent))
     version = executorch_version(mlops_file)
     runtime, operators = components(pte, executorch_pack(version))
 
@@ -259,8 +361,16 @@ def main() -> None:
     (layer_dir / "model.pte").write_bytes(pte)
     (layer_dir / f"{SYMBOL}.c").write_text(c_array(pte), newline="\n")
     (layer_dir / f"{SYMBOL}.h").write_text(HEADER, newline="\n")
+    (layer_dir / "model_io.h").write_text(io_header(io), newline="\n")
     layer_file.write_text(clayer(mlops, runtime, operators, mlops_file, version), newline="\n")
 
+    for name, desc in io.items():
+        for kind in ("inputs", "outputs"):
+            for index, t in enumerate(desc[kind]):
+                print(
+                    f"[ai_layer] {name} {kind[:-1]}{index}: {t['dtype']}{t['shape']} "
+                    f"scale={t['scale']:.6g} zp={t['zero_point']}"
+                )
     print(f"[ai_layer] {len(pte)} byte program, operators: {operators}")
     print(f"[ai_layer] wrote {layer_file}")
 
