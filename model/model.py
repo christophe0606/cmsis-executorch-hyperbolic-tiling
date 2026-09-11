@@ -1,33 +1,24 @@
 # Copyright 2026 Arm Limited and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
-"""NPU render: the tensor-shaped stages of a small 3D pipeline, for Ethos-U85.
+"""Hyperbolic tiling: the tensor-shaped half of a full-screen fragment shader, for Ethos-U85.
 
-The Ethos-U85 executes a precompiled command stream over static shapes, so it
-cannot rasterize. It can, however, run the parts of a 3D pipeline that are
-plain tensor math, and this module defines those as two ExecuTorch methods
-that create_ai_layer.py quantizes and compiles for the NPU:
+A port of christophe0606/shader_linux_glsl, a GLSL fragment shader that tiles
+the Poincare disk with reflections of a camera image, split the way the NPU
+render demo splits a 3D pipeline:
 
-  vertex(pos, nrm, mvp, mv)  int16   Batch vertex transform: clip-space
-                                     positions and view-space normals as two
-                                     batched matmuls; the batch dimension is
-                                     the object, each with its own matrices.
-  shade(normal, albedo, depth) int8  Deferred shading of a G-buffer: Lambert
-                                     lighting (1x1 conv), ambient, depth fog,
-                                     a 3x3 depthwise post filter, then a 2x
-                                     bilinear upscale to the panel resolution
-                                     and a transpose to an interleaved
-                                     RGB888 frame the display controller
-                                     scans out directly.
+  CPU (Helium)  the branchy per-pixel geometry: Moebius animation, the
+                iterated hyperbolic reflections with early exit, the edge
+                distance test, tile parity and the texture coordinate of
+                every pixel. It writes a "tiling G-buffer" at TILE_HEIGHT x
+                TILE_WIDTH: a texel index, a parity mask, an edge mask and
+                an inside-the-disk mask.
+  NPU           tile(...): the texture lookup as a gather (TOSA GATHER on the
+                U85), the tile / edge / background colouring as masked
+                blends, then a 2x bilinear upscale to the 480x800 panel and
+                the transpose to interleaved RGB888.
 
-The CPU (src/app_main.cpp) owns everything in between: perspective divide,
-culling, edge-function rasterization into the G-buffer, and the z-buffer.
-Shapes are fixed at export time, so the vertex batch is padded to
-MAX_VERTICES, the G-buffer is FRAME_HEIGHT x FRAME_WIDTH and the output is
-UPSCALE times that: the DevKit-E8 panel, 480 x 800 portrait.
-
-The weights are hand-set (no training): a light direction, an ambient term,
-a fog colour and a Gaussian kernel, so the shaded image is predictable and
-the CPU-side reference in app_main.cpp can check the NPU output.
+The colours are method inputs, so the console commands that stand in for the
+original demo's MCP tools change them without a re-export.
 """
 
 from __future__ import annotations
@@ -37,17 +28,10 @@ from dataclasses import dataclass, field
 import torch
 from torch import nn
 
-MAX_OBJECTS = 2  # bmm batch: one model-view / MVP pair per object
-MAX_VERTICES = 512  # per object, padded (static shape)
-FRAME_WIDTH = 240  # G-buffer, portrait: half the 480 x 800 panel in each axis
-FRAME_HEIGHT = 400
-UPSCALE = 2  # bilinear, on the NPU; the output is (1, H * UPSCALE, W * UPSCALE, 3)
-
-LIGHT_DIR = (0.30, 0.50, -0.81)  # view space, towards the light, |L| = 1; the camera looks down +z
-KEY_LIGHT = 0.8
-AMBIENT = 0.2
-FOG_COLOR = (0.10, 0.12, 0.18)
-GAUSS_3X3 = [[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]]
+TILE_WIDTH = 240  # geometry resolution, portrait: half the 480 x 800 panel in each axis
+TILE_HEIGHT = 400
+UPSCALE = 2  # bilinear, on the NPU
+TEXTURE_SIZE = 128  # the (camera) texture is TEXTURE_SIZE x TEXTURE_SIZE RGB
 
 
 @dataclass
@@ -64,88 +48,62 @@ class MethodSpec:
         return self.samples[0]
 
 
-class VertexStage(nn.Module):
-    """clip = pos x mvp, nview = nrm x mv, both as batched matmuls (row-vector convention)."""
+class TileStage(nn.Module):
+    """Compose the frame from the tiling G-buffer and the texture.
+
+    texture   (T*T, 3)      RGB texels in [0, 1], row-major
+    index     (H*W,) int32  texel index of every pixel (the CPU's texture coordinate)
+    parity    (1, 1, H, W)  1 for tile A, 0 for tile B
+    edge      (1, 1, H, W)  1 on a tile edge
+    inside    (1, 1, H, W)  1 inside the disk, 0 for the background
+    tile_a, tile_b, edge_color, background   (1, 3, 1, 1) colours in [0, 1]
+
+    Returns (1, H * UPSCALE, W * UPSCALE, 3) in [0, 1].
+    """
 
     def forward(
-        self, pos: torch.Tensor, nrm: torch.Tensor, mvp: torch.Tensor, mv: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        clip = torch.bmm(pos, mvp)  # (B, N, 4) x (B, 4, 4) -> (B, N, 4)
-        nview = torch.bmm(nrm, mv)  # (B, N, 4) x (B, 4, 4) -> (B, N, 4), w = 0
-        return clip, nview
-
-
-class ShadeStage(nn.Module):
-    """Deferred shading of a planar G-buffer, then a 3x3 Gaussian post filter."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.lambert = nn.Conv2d(3, 1, kernel_size=1, bias=False)
-        self.lambert.weight.data = torch.tensor(LIGHT_DIR).view(1, 3, 1, 1)
-        self.post = nn.Conv2d(3, 3, kernel_size=3, padding=1, groups=3, bias=False)
-        kernel = torch.tensor(GAUSS_3X3)
-        self.post.weight.data = (kernel / kernel.sum()).expand(3, 1, 3, 3).clone()
-        self.register_buffer("fog_color", torch.tensor(FOG_COLOR).view(1, 3, 1, 1))
-
-    def forward(self, normal: torch.Tensor, albedo: torch.Tensor, depth: torch.Tensor) -> torch.Tensor:
-        ndotl = torch.relu(self.lambert(normal))  # (1, 1, H, W)
-        light = ndotl * KEY_LIGHT + AMBIENT
-        lit = albedo * light  # broadcast over the 3 colour channels
-        color = lit * (1.0 - depth) + self.fog_color * depth  # depth in [0, 1] is the fog factor
-        color = torch.clamp(self.post(color), 0.0, 1.0)
+        self,
+        texture: torch.Tensor,
+        index: torch.Tensor,
+        parity: torch.Tensor,
+        edge: torch.Tensor,
+        inside: torch.Tensor,
+        tile_a: torch.Tensor,
+        tile_b: torch.Tensor,
+        edge_color: torch.Tensor,
+        background: torch.Tensor,
+    ) -> torch.Tensor:
+        texel = torch.index_select(texture, 0, index)  # (H*W, 3): the texture lookup
+        texel = texel.reshape(1, TILE_HEIGHT, TILE_WIDTH, 3).permute(0, 3, 1, 2)  # (1, 3, H, W)
+        tile = tile_a * parity + tile_b * (1.0 - parity)  # the tile's own colour
+        color = 0.5 * texel + 0.5 * tile  # as the shader: half texture, half tile colour
+        color = edge_color * edge + color * (1.0 - edge)
+        color = color * inside + background * (1.0 - inside)
         frame = nn.functional.interpolate(color, scale_factor=UPSCALE, mode="bilinear", align_corners=False)
         return frame.permute(0, 2, 3, 1)  # NCHW -> NHWC: interleaved RGB rows, the display's RGB888 layout
 
 
-def _vertex_samples() -> list[tuple[torch.Tensor, ...]]:
-    """Calibration that pins the int16 ranges: |pos| <= 1, |nrm| <= 1, |matrix| <= 4, |out| <= 8."""
-    b, n = MAX_OBJECTS, MAX_VERTICES
-    # Every tensor is a distinct object: torch.export aliases inputs that
-    # share one tensor and then drops the duplicate from the graph.
-    ones = lambda: torch.ones(b, n, 4)  # noqa: E731
-    two = lambda: torch.full((b, 4, 4), 2.0)  # noqa: E731  1 * 2 * 4 columns = 8 at the output
-    ext = torch.zeros(b, 4, 4)
-    ext[:, 0, 0], ext[:, 1, 1] = 4.0, -4.0
-    g = torch.Generator().manual_seed(0)
-    rnd = lambda *shape: torch.rand(*shape, generator=g) * 2 - 1  # noqa: E731
-    return [
-        (ones(), ones(), two(), two()),
-        (-ones(), -ones(), two(), two()),
-        (rnd(b, n, 4), rnd(b, n, 4), ext, ext.clone()),
-        (rnd(b, n, 4), rnd(b, n, 4), rnd(b, 4, 4) * 2, rnd(b, 4, 4) * 2),
-    ]
+def _tile_samples() -> list[tuple[torch.Tensor, ...]]:
+    """Calibration that pins every range to [0, 1]; the index is int32 and not quantized."""
+    h, w, t = TILE_HEIGHT, TILE_WIDTH, TEXTURE_SIZE
+    g = torch.Generator().manual_seed(2)
 
+    def sample(fill: float | None):
+        texture = torch.rand(t * t, 3, generator=g)
+        index = torch.randint(0, t * t, (h * w,), generator=g, dtype=torch.int32)
+        masks = [torch.randint(0, 2, (1, 1, h, w), generator=g).float() for _ in range(3)]
+        colors = [torch.rand(1, 3, 1, 1, generator=g) for _ in range(4)]
+        if fill is not None:
+            texture.fill_(fill)
+            for m in masks:
+                m.fill_(fill)
+            for c in colors:
+                c.fill_(fill)
+        return (texture, index, *masks, *colors)
 
-def _shade_samples() -> list[tuple[torch.Tensor, ...]]:
-    """Calibration that pins the int8 ranges: normal in [-1, 1], albedo and depth in [0, 1]."""
-    h, w = FRAME_HEIGHT, FRAME_WIDTH
-    g = torch.Generator().manual_seed(1)
-
-    def sample(normal_value: float | None, albedo_value: float | None, depth_value: float | None):
-        normal = torch.rand(1, 3, h, w, generator=g) * 2 - 1
-        normal = normal / normal.norm(dim=1, keepdim=True)
-        albedo = torch.rand(1, 3, h, w, generator=g)
-        depth = torch.rand(1, 1, h, w, generator=g)
-        if normal_value is not None:
-            normal.fill_(normal_value)
-        if albedo_value is not None:
-            albedo.fill_(albedo_value)
-        if depth_value is not None:
-            depth.fill_(depth_value)
-        return normal, albedo, depth
-
-    lit = torch.tensor(LIGHT_DIR).view(1, 3, 1, 1).expand(1, 3, h, w).clone()
-    return [
-        (lit, torch.ones(1, 3, h, w), torch.zeros(1, 1, h, w)),  # brightest: n = L, white, no fog
-        sample(-1.0, 0.0, 1.0),  # darkest / full fog
-        sample(None, None, None),
-        sample(None, None, None),
-    ]
+    return [sample(1.0), sample(0.0), sample(None), sample(None)]
 
 
 def get_methods() -> list[MethodSpec]:
     torch.manual_seed(0)
-    return [
-        MethodSpec("vertex", VertexStage().eval(), _vertex_samples(), activation_bits=16),
-        MethodSpec("shade", ShadeStage().eval(), _shade_samples(), activation_bits=8),
-    ]
+    return [MethodSpec("tile", TileStage().eval(), _tile_samples(), activation_bits=8)]

@@ -38,7 +38,7 @@ layer:
     # section there.
     - APP_POOL_SECTION: \".bss.ai_pool\"
     - APP_METHOD_POOL_SIZE: 0x180000
-    - APP_TEMP_POOL_SIZE: 0x380000  # Vela: 3.0 MB scratch for the 480x800 shade graph
+    - APP_TEMP_POOL_SIZE: 0x300000  # Vela: 2.6 MB scratch for the 480x800 tile graph
     # The board has a display: the app double-buffers 480x800 RGB888 frames
     # in this section (bulk SRAM, next to the pools) and presents them
     # through board_display.c.

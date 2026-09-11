@@ -178,6 +178,10 @@ def export_program(spec) -> tuple[bytes, dict]:
         program = edge.exported_program(method.name)
         inputs, outputs = [], []
         for index, example in enumerate(method.example):
+            if not example.is_floating_point():
+                # Integer inputs (gather indices) pass through unquantized.
+                inputs.append(_tensor_desc(tuple(example.shape), example.dtype, 1.0, 0, 0, 0))
+                continue
             scale, zp, qmin, qmax, dtype = quantize_input(program, index)
             inputs.append(_tensor_desc(tuple(example.shape), dtype, scale, zp, qmin, qmax))
         for index in range(len(program.graph_signature.user_outputs)):
@@ -208,7 +212,7 @@ def _output_shape(program, index: int) -> tuple[int, ...]:
 def _tensor_desc(shape, dtype, scale, zp, qmin, qmax) -> dict:
     import torch
 
-    ctype = {torch.int8: "int8_t", torch.int16: "int16_t", torch.uint8: "uint8_t", torch.int32: "int32_t"}[dtype]
+    ctype = {torch.int8: "int8_t", torch.int16: "int16_t", torch.uint8: "uint8_t", torch.int32: "int32_t", torch.int64: "int64_t"}[dtype]
     return {
         "shape": [int(d) for d in shape],
         "dtype": str(dtype).replace("torch.", ""),
