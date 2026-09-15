@@ -168,17 +168,21 @@ void compute_triangle(int p, int q, int r, Vec3& n1, Vec3& n2, Vec3& n3) {
 
 auto& g_planes = g_render.planes;
 
-void apply_symmetry() {
+void compute_planes(int symmetry, tiling::Plane* planes) {
   static const int presets[3][3] = {{2, 4, 5}, {2, 4, 7}, {4, 4, 4}};
-  static const float preset_zoom[3] = {1.0f, 0.5f, 0.5f};
-  const int* pqr = presets[std::min(std::max(g_settings.symmetry, 0), 2)];
+  const int* pqr = presets[std::min(std::max(symmetry, 0), 2)];
   Vec3 n[3];
   compute_triangle(pqr[0], pqr[1], pqr[2], n[0], n[1], n[2]);
   for (int i = 0; i < 3; ++i) {
-    double nn = hdot(n[i], n[i]);
-    g_planes[i] = {static_cast<float>(n[i].x), static_cast<float>(n[i].y), static_cast<float>(n[i].z),
-                   static_cast<float>(2.0 / nn), static_cast<float>(1.0 / nn)};
+    const double inv_norm = 1.0 / sqrt(hdot(n[i], n[i]));
+    planes[i] = {static_cast<float>(n[i].x * inv_norm),
+                   static_cast<float>(n[i].y * inv_norm), static_cast<float>(n[i].z * inv_norm)};
   }
+}
+
+void apply_symmetry() {
+  static const float preset_zoom[3] = {1.0f, 0.5f, 0.5f};
+  compute_planes(g_settings.symmetry, g_planes);
   if (!g_settings.zoom_override) g_settings.zoom = preset_zoom[g_settings.symmetry];
 }
 
@@ -291,7 +295,7 @@ struct TensorBox {
 };
 
 // ---------------------------------------------------------------------------
-// The geometry pass (Helium, four pixels per vector).
+// The geometry pass (Helium f16, eight pixels or two 2x2-AA pixels per vector).
 // ---------------------------------------------------------------------------
 #ifdef APP_DUAL_CORE
 bool validate_worker() {
@@ -300,41 +304,53 @@ bool validate_worker() {
   static tiling::RenderState test;
   alignas(32) static uint16_t remote[3 * kPixels];
   test = g_render;
-  for (int mode = 0; mode < 16; ++mode) {
-    test.settings.half = mode & 1;
-    test.settings.aa = mode & 2;
-    test.settings.texture = mode & 4;
-    test.settings.geometry = (mode >> 3) & 1;
-    test.settings.iterations = 40;
-    const int width = test.settings.half ? kFrameWidth / 2 : kFrameWidth;
-    const int height = test.settings.half ? kFrameHeight / 2 : kFrameHeight;
-    const float offsets[] = {0, -0.25f, 0.25f};
-    for (int sample = 0; sample < 3; ++sample) {
-      for (int x = 0; x < width; ++x) {
-        auto map = tiling::map_horizontal(x, width, offsets[sample], test.settings.geometry);
-        test.map_x[sample][x] = map.value;
-        test.map_sin[sample][x] = map.sine;
+  for (int symmetry = 0; symmetry < 3; ++symmetry) {
+    compute_planes(symmetry, test.planes);
+    test.settings.symmetry = symmetry;
+    test.settings.zoom = symmetry == 2 ? 100.0f : 0.5f;
+    test.settings.animation = symmetry != 1;
+    for (int mode = 0; mode < 16; ++mode) {
+      test.settings.half = mode & 1;
+      test.settings.aa = mode & 2;
+      test.settings.texture = mode & 4;
+      test.settings.geometry = (mode >> 3) & 1;
+      test.settings.iterations = 40;
+      const int width = test.settings.half ? kFrameWidth / 2 : kFrameWidth;
+      const int height = test.settings.half ? kFrameHeight / 2 : kFrameHeight;
+      const float offsets[] = {0, -0.25f, 0.25f};
+      for (int sample = 0; sample < 3; ++sample) {
+        for (int x = 0; x < width; ++x) {
+          auto map = tiling::map_horizontal(x, width, offsets[sample], test.settings.geometry);
+          test.map_x[sample][x] = map.value;
+          test.map_sin[sample][x] = map.sine;
+        }
+        for (int y = 0; y < height; ++y)
+          test.map_y[sample][y] = tiling::map_vertical(y, width, height, offsets[sample], test.settings.geometry);
       }
-      for (int y = 0; y < height; ++y)
-        test.map_y[sample][y] = tiling::map_vertical(y, width, height, offsets[sample], test.settings.geometry);
-    }
-    g_worker.begin_frame(test, 1.25f);
-    // A strip through the detailed center, and a clamped bottom/halo strip.
-    for (int by : {height / 2, height - 2}) {
-      const int bx = width - kWidth;
-      g_worker.submit(bx, by);
-      auto expected = tiling::render_strip(test, g_accum, 1.25f, bx, by);
-      tiling::GeometryStats actual{};
-      if (!g_worker.wait(remote, actual)) {
-        ++g_tiling_metrics.validation_errors;
-        return false;
-      }
-      ++g_tiling_metrics.validation_cases;
-      if (memcmp(remote, g_accum, sizeof(remote)) != 0 ||
-          actual.rounds != expected.rounds || actual.vectors != expected.vectors ||
-          actual.capped_vectors != expected.capped_vectors) {
-        ++g_tiling_metrics.validation_errors;
-        return false;
+      g_worker.begin_frame(test, 1.25f);
+      // Detailed center, disk boundary, and clamped bottom/halo strip.
+      for (int by : {height / 2, (height - width) / 2, height - 2}) {
+        const int bx = width - kWidth;
+        g_worker.submit(bx, by);
+        const uint32_t fpscr = __get_FPSCR();
+        __set_FPSCR(fpscr & ~7U); // Clear invalid, divide-by-zero and overflow.
+        auto expected = tiling::render_strip(test, g_accum, 1.25f, bx, by);
+        const uint32_t fp_errors = __get_FPSCR() & 7U;
+        __set_FPSCR(fpscr);
+        tiling::GeometryStats actual{};
+        if (!g_worker.wait(remote, actual)) {
+          ++g_tiling_metrics.validation_errors;
+          return false;
+        }
+        ++g_tiling_metrics.validation_cases;
+        if (fp_errors || std::any_of(g_accum, g_accum + 3 * kPixels,
+                                   [](uint16_t value) { return value > 255; }) ||
+            memcmp(remote, g_accum, sizeof(remote)) != 0 ||
+            actual.rounds != expected.rounds || actual.vectors != expected.vectors ||
+            actual.capped_vectors != expected.capped_vectors) {
+          ++g_tiling_metrics.validation_errors;
+          return false;
+        }
       }
     }
   }
@@ -619,9 +635,9 @@ extern "C" int app_main(void) {
       rounds += stats.rounds; vectors += stats.vectors; capped += stats.capped_vectors;
       const int rows = std::min(step, height - by);
       if (g_settings.half) {
-        for (int p = 0; p < 3 * kPixels; p += 4) {
-          uint32x4_t col = vldrhq_u32(g_accum + p);
-          vstrbq_s32(g_rgb + p, vsubq_n_s32(vreinterpretq_s32_u32(col), 128));
+        for (int p = 0; p < 3 * kPixels; p += 8) {
+          uint16x8_t col = vld1q_u16(g_accum + p);
+          vstrbq_s16(g_rgb + p, vsubq_n_s16(vreinterpretq_s16_u16(col), 128));
         }
         uint32_t t = cycles();
         auto result = upscale->execute();
@@ -635,14 +651,14 @@ extern "C" int app_main(void) {
             vst1q_u8(dst + i, veorq_u8(vld1q_u8(src + i), vdupq_n_u8(128)));
         }
       } else {
-        const uint32_t offsets[4] = {0, 3, 6, 9};
-        const uint32x4_t offsets_v = vld1q_u32(offsets);
+        const uint16_t offsets[8] = {0, 3, 6, 9, 12, 15, 18, 21};
+        const uint16x8_t offsets_v = vld1q_u16(offsets);
         for (int y = 0; y < rows; ++y) {
           uint8_t* dst = g_framebuffer[back] + ((by + y) * kFrameWidth + bx) * 3;
-          for (int x = 0; x < kWidth; x += 4)
+          for (int x = 0; x < kWidth; x += 8)
             for (int c = 0; c < 3; ++c) {
-              uint32x4_t col = vldrhq_u32(g_accum + c * kPixels + y * kWidth + x);
-              vstrbq_scatter_offset_u32(dst + x * 3 + c, offsets_v, col);
+              uint16x8_t col = vld1q_u16(g_accum + c * kPixels + y * kWidth + x);
+              vstrbq_scatter_offset_u16(dst + x * 3 + c, offsets_v, col);
             }
         }
       }

@@ -81,9 +81,31 @@ incompatible or times out, HP completes rendering locally and stops issuing
 requests; late HE writes remain confined to the reserved mailbox. Load and
 reset both images together when changing the protocol or shared structures.
 
-At startup, 32 strip comparisons check HP/HE pixels and reflection statistics
-across full/half, AA on/off, texture on/off and disk/plane modes, including
-the center and clamped bottom rows. These use private test settings and leave
+The geometry kernel uses eight-lane Helium **f16** on both cores. A vector
+renders eight pixels without AA, or the four samples of two pixels with AA.
+Mapping tables are binary16; plane construction and scalar animation/setup
+remain f32/f64. Ethos and its quantized model stay on HP unchanged.
+
+To control binary16 range, mirror normals are normalized before conversion,
+homogeneous reflection coordinates are rescaled together when they grow,
+and edge distances use a linear test instead of squaring values. Reciprocals
+have a minimum-normal denominator, and texture projection bounds its ratios.
+Fine boundary detail and high texture zoom can still lose precision; visual
+acceptance is required, rather than equality with the former f32 renderer.
+The shared protocol is now version 2: load both new images together.
+
+The f16 Debug and Release images build for both cores with AC6 6.24, and
+disassembly confirms native f16 vector arithmetic. Hardware validation and
+timings are pending: the CMSIS extension reported no ready debug session
+after repeated load/debug requests. The checks below are implemented but
+have not yet been observed passing on the f16 firmware.
+
+At startup, 144 strip comparisons check HP/HE pixels and reflection statistics
+across all three symmetries, full/half, AA on/off, texture on/off and disk/plane
+modes, including the center, disk boundary and clamped bottom rows. Tests use
+40 reflection rounds, animation on/off and texture zoom up to 100. HP also
+checks floating-point invalid/divide-by-zero/overflow flags and RGB bounds.
+These use private test settings and leave
 the displayed settings unchanged. A failure disables offloading. The console
 reports validation results and HE's strip count/transfer-wait time.
 `g_tiling_metrics` exposes frame timings and validation results to the debugger;
@@ -92,7 +114,8 @@ measures elapsed rendering time including mailbox work, excluding display wait
 and console output. `geometry_cycles` measures HP geometry and HE result waits,
 not the sum of the two cores' simultaneous execution times.
 
-Measured on the E8 with AC6 6.24, HP at 400 MHz and HE at 160 MHz, full
+The following measurements are the earlier **f32 Debug baseline**, before
+the f16 conversion: E8 with AC6 6.24, HP at 400 MHz and HE at 160 MHz, full
 resolution, no AA, texture enabled, 12 reflection rounds and animation running:
 
 | Mode | Sampled render times | HE strips per 100-strip frame |

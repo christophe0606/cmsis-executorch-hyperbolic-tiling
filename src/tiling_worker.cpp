@@ -9,7 +9,8 @@
 
 namespace tiling {
 namespace {
-constexpr uint32_t kMagic = 0x54494c45, kVersion = 1;
+// v2 changes RenderState to binary16 mapping tables and normalized planes.
+constexpr uint32_t kMagic = 0x54494c45, kVersion = 2;
 constexpr uint32_t kPing = 1, kRender = 2, kOk = 0, kInvalid = 1;
 struct alignas(32) Request {
   uint32_t magic, version, sequence, opcode, frame;

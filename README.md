@@ -142,11 +142,19 @@ cbuild cmsis-executorch.csolution.yml --active DevKit-E8@Release --update-rte
 ```
 
 Release uses `-O3` throughout and `-ffast-math` for the Helium kernel on both
-cores, with debug information disabled. The default target-set retains Debug;
-its application groups already use `-O3`. The simulator also has a Release
+cores, with debug information disabled. The DevKit-E8 default target-set also
+selects Release for both cores. Debug contexts remain available for builds
+with symbols; their application groups already use `-O3`. The simulator also has a Release
 target-set (`SSE-320-U85@Release`). Release outputs are in each project's
 `out/<project>/<target>/Release/` directory. Select the corresponding target-set
 before loading so the generated load configuration uses the intended images.
+
+On the `f16` branch, both cores render with eight-lane Helium binary16 vectors
+and binary16 mapping tables. Scalar setup retains f32/f64 precision; Ethos
+stays on HP unchanged. Load both images together because the shared-state
+format has changed. See the [f16 range protections and startup checks](board/DevKit-E8/README.md#parallel-helium-rendering).
+Visual quality, especially fine boundary details and high texture zoom, still
+needs assessment on the display.
 
 1. With SW4 on **UART4**, open the **Serial Monitor** panel on the PRG USB
    port, 115200 baud.
