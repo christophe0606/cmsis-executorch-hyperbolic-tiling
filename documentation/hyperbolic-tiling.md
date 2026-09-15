@@ -1,5 +1,10 @@
 # Hyperbolic tiling: a fragment shader split between Helium and the Ethos-U85
 
+The current renderer adds [full resolution, 2x2 antialiasing and an adjustable
+reflection budget](helium-quality.md). That page describes the current controls
+and CPU/NPU split. The implementation and measurements below describe the
+original half-resolution pipeline used as the baseline.
+
 Branch `hyperbolic-npu`. A port of
 [christophe0606/shader_linux_glsl](https://github.com/christophe0606/shader_linux_glsl),
 Christophe Favergeon's full-screen GLSL shader that tiles the Poincaré disk
@@ -47,19 +52,22 @@ Vela reports 11 NPU operators, 0 CPU operators, 2.6 MB of scratch. Tile,
 edge and background colours are method inputs, so the console commands
 change them without a re-export.
 
-## What replaces the MCP tools and the camera
+## MCP tools, console commands and the camera
 
-The original's MCP tools become commands on the UART console (115200 on the
-PRG USB port), so a terminal or the CMSIS Developer Assistant's serial tools
-play the LLM's part:
+The original's MCP tools now run over UART using an embedded `c_mcp` port,
+interrupt reception and dispatch between frames; no RTOS is required. See
+[MCP connection and Codex configuration](mcp-uart.md). The same UART console
+(115200 on PRG USB) also accepts these commands from a terminal or the CMSIS
+Developer Assistant's serial tools:
 
 ```text
 symmetry 0|1|2          (2,4,5), (2,4,7) or (4,4,4) triangle group, as the demo's presets
-geometry disk|plane     Poincaré disk or the strip model of the plane
+geometry disk|plane     Poincaré disk or vertical strip filling the portrait panel
 animation on|off        the Möbius drift
 edge <colour>           edge colour: a name (black, white, red, ... navy) or r,g,b
 background <colour>
 tile a|b <colour>       the two tile colours (default red and blue, as the shader)
+texture on|off          texture blend or solid tile colours (default on)
 zoom <f>                texture zoom
 reset | status | help
 ```

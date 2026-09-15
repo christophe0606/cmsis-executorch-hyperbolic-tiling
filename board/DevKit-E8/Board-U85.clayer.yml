@@ -91,9 +91,7 @@ layer:
 
     - component: Machine Learning:NPU Support:Ethos-U Driver&Generic U85
 
-    - component: Services:Retarget IO:STDERR
-    - component: Services:Retarget IO:STDIN
-    - component: Services:Retarget IO:STDOUT
+    # retarget_stdio.c owns interrupt RX and the CMSIS-Compiler character hooks.
     - component: Services:Secure Enclave:core&Source
     - component: Services:Secure Enclave:Initialization Helper&Source
 
@@ -105,6 +103,7 @@ layer:
         - file: ./DevKit-E8.h
         - file: ./ethos_setup.c
         - file: ./retarget_stdio.c
+        - file: ./board_console.h
         - file: ./board_display.c
         - file: ./board_display.h
 

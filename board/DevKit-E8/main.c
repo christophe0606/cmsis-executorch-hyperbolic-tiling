@@ -67,7 +67,7 @@ int main(void)
     dphy_power_init();
 
     /* Initialize STDIO (UART4 on the PRG USB connector) */
-    stdio_init();
+    if (stdio_init() != 0) return 1;
 
     #if defined(ETHOSU_ARCH)
     /* Initialize Ethos NPU */

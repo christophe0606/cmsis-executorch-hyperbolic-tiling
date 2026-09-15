@@ -84,6 +84,9 @@ void ethos_setup (void) {
     int rval;
     struct ethosu_hw_info hw_info;
 
+    /* Core-only debugger restarts can retain a previous NPU completion. */
+    NVIC_DisableIRQ(ETHOSU_IRQ_IRQn);
+
     /*  Initialize Ethos-U NPU driver. */
     rval = ethosu_init(&EthosDriver,           /* Ethos-U device driver */
                       ethos_base_addr,         /* Ethos-U base address  */
@@ -102,6 +105,11 @@ void ethos_setup (void) {
         return;
     }
 
+    if (ethosu_soft_reset(&EthosDriver) != 0) {
+        printf("Failed to reset Arm Ethos-U device\n");
+        return;
+    }
+    NVIC_ClearPendingIRQ(ETHOSU_IRQ_IRQn);
     NVIC_EnableIRQ(ETHOSU_IRQ_IRQn);
 
     /* Banner printed unconditionally (the pack layer prints it only with

@@ -117,6 +117,10 @@ namespace arm
           HierarchicalAllocator *planned_memory = nullptr,
           EventTracer *event_tracer = nullptr);
 
+      // Prepare before a real-time loop. The borrowed method remains valid until
+      // unload_method() or module destruction; tensor storage uses our arenas.
+      ET_NODISCARD Result<Method *> prepare_method(const std::string &method_name);
+
       #if 0
       ET_DEPRECATED ET_NODISCARD Error inline load_method(
           const std::string &method_name,

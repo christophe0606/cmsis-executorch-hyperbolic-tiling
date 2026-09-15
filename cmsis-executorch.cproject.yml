@@ -35,6 +35,30 @@ project:
         - file: ./src/arm_embedded_module.cpp
         - file: ./src/arm_embedded_module.hpp
 
+    - group: MCP controls
+      misc:
+        - for-compiler: AC6
+          CPP:
+            - -ffp-mode=full
+      files:
+        - file: ./src/tiling_settings.cpp
+        - file: ./src/tiling_settings.hpp
+        - file: ./src/mcp_tools.cpp
+        - file: ./src/mcp_tools.hpp
+
+    - group: c_mcp
+      misc:
+        - for-compiler: AC6
+          C:
+            - -ffp-mode=full
+      define:
+        - CJSON_NESTING_LIMIT: 16
+      files:
+        - file: ./third_party/c_mcp/mcp.c
+        - file: ./third_party/c_mcp/mcp.h
+        - file: ./third_party/c_mcp/cJSON.c
+        - file: ./third_party/c_mcp/cJSON.h
+
   layers:
     - layer: $Board-Layer$
       type: Board

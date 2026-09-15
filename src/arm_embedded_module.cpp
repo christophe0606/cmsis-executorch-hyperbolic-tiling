@@ -138,14 +138,12 @@ namespace arm
       return Error::Ok;
     }
 
-    #if 0
-    ET_NODISCARD Result<Method *> EmbeddedModule::method(
+    ET_NODISCARD Result<Method *> EmbeddedModule::prepare_method(
         const std::string &method_name)
     {
       ET_CHECK_OK_OR_RETURN_ERROR(load_method(method_name));
-      return methods_[method_name].method.get();
+      return methods_.at(method_name).method.get();
     }
-    #endif 
     
     Result<MethodMeta> EmbeddedModule::method_meta(const std::string &method_name)
     {

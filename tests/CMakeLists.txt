@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.20)
+project(hyperbolic_mcp_tests LANGUAGES C CXX)
+enable_testing()
+add_executable(projection_test projection_test.cpp)
+target_include_directories(projection_test PRIVATE ../src)
+target_compile_features(projection_test PRIVATE cxx_std_17)
+add_test(NAME projection COMMAND projection_test)
+add_executable(mcp_host mcp_host.cpp
+  ../src/mcp_tools.cpp ../src/tiling_settings.cpp
+  ../third_party/c_mcp/mcp.c ../third_party/c_mcp/cJSON.c)
+target_include_directories(mcp_host PRIVATE ../src ../third_party/c_mcp)
+target_compile_features(mcp_host PRIVATE cxx_std_17)
+target_compile_definitions(mcp_host PRIVATE CJSON_NESTING_LIMIT=16)
+if(MSVC)
+  target_compile_definitions(mcp_host PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()

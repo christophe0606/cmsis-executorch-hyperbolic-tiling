@@ -1,13 +1,26 @@
 # ExecuTorch on Ethos-U85: hackathon guide
 
+The current Helium renderer supports **full resolution, 2x2 antialiasing and
+an adjustable reflection limit**. It defaults to full resolution, AA off and
+12 rounds. Use `scale half` for faster rendering with Ethos enlargement.
+See [quality controls and measured board results](documentation/helium-quality.md).
+
+Plane geometry is rotated 90 degrees to fill the portrait display. Use
+`texture off` (MCP: `textureOn(on=false)`) for solid red/blue tiles, or change
+their colours with `tile a|b <colour>`. `texture on` restores texture blending.
+
+**MCP over UART is available without an RTOS.** See
+[UART MCP and Codex workspace configuration](documentation/mcp-uart.md), including
+the serial bridge and the `.codex/config.toml` example.
+
 The Arm ExecuTorch example, on its `hackathon` branch with the Alif board
 added. One CMSIS solution runs an ExecuTorch program on the Ethos-U85 of the **Alif Ensemble E8 DevKit** (Cortex-M55
 HP core) and on the **Corstone-320 FVP**; you switch between them by
 target-type. On this branch the program is the **hyperbolic tiling**: a port
 of christophe0606's GLSL shader demo, with the reflection geometry and the
-texture gather on the Cortex-M55 with Helium, the compositing and upscaling
-on the NPU, the DevKit's LCD showing it and the demo's MCP tools as console
-commands; see [documentation/hyperbolic-tiling.md](documentation/hyperbolic-tiling.md).
+texture gather, compositing and antialiasing on the Cortex-M55 with Helium,
+half-resolution upscaling on the NPU, the DevKit's LCD showing it and the demo's MCP tools over UART
+alongside console commands; see [documentation/hyperbolic-tiling.md](documentation/hyperbolic-tiling.md).
 The `npu-render` branch has the 3D-pipeline demo this builds on
 ([documentation/npu-render.md](documentation/npu-render.md)). The model is exported from PyTorch in three steps: the
 CMSIS-Toolbox describes the target, `create_ai_layer.py` turns that into the

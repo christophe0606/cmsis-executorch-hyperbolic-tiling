@@ -23,6 +23,8 @@
 
 #include "RTE_Components.h"
 #include CMSIS_target_header
+#include CMSIS_device_header
+#include "board_console.h"
 
 /* Compile-time configuration */
 #ifndef UART_BAUDRATE
@@ -35,6 +37,71 @@ extern int stdio_init(void);
 /* Reference to the underlying USART driver */
 #define ptrUSART (&ARM_Driver_USART_(RETARGET_STDIO_UART))
 
+/* One ISR producer, one foreground consumer. No parsing or printing in IRQ. */
+#define RX_SIZE 8192U
+static uint8_t rx_ring[RX_SIZE];
+static uint8_t rx_byte;
+static volatile uint32_t rx_write, rx_read, rx_lost;
+static int initialized;
+
+static void uart_event(uint32_t event)
+{
+    const uint32_t errors = ARM_USART_EVENT_RX_OVERFLOW | ARM_USART_EVENT_RX_BREAK |
+                            ARM_USART_EVENT_RX_FRAMING_ERROR | ARM_USART_EVENT_RX_PARITY_ERROR;
+    if (event & errors) {
+        rx_lost = 1U;
+        ptrUSART->Control(ARM_USART_ABORT_RECEIVE, 0U);
+    } else if (event & ARM_USART_EVENT_RECEIVE_COMPLETE) {
+        uint32_t next = (rx_write + 1U) % RX_SIZE;
+        if (next == rx_read) {
+            rx_lost = 1U;
+        } else if (!rx_lost) {
+            rx_ring[rx_write] = rx_byte;
+            __DMB();
+            rx_write = next;
+        }
+    } else {
+        return; /* TX completion or RX timeout: keep the outstanding receive. */
+    }
+    if (ptrUSART->Receive(&rx_byte, 1U) != ARM_DRIVER_OK) rx_lost = 1U;
+}
+
+int board_console_getchar(void)
+{
+    uint32_t state = __get_PRIMASK();
+    __disable_irq();
+    int ch = -1;
+    if (rx_lost) {
+        rx_read = rx_write;
+        rx_lost = 0U;
+        ch = -2;
+    } else if (rx_read != rx_write) {
+        ch = rx_ring[rx_read];
+        rx_read = (rx_read + 1U) % RX_SIZE;
+    }
+    __set_PRIMASK(state);
+    return ch;
+}
+
+/* Foreground-only synchronous writes over the interrupt-driven CMSIS driver.
+ * Waiting for tx_busy to clear also keeps the buffer alive until completion.
+ */
+int stdout_putchar(int ch)
+{
+    uint8_t byte = (uint8_t)ch;
+    if (!initialized || ptrUSART->Send(&byte, 1U) != ARM_DRIVER_OK) return -1;
+    while (ptrUSART->GetStatus().tx_busy) {}
+    return ch;
+}
+
+int stderr_putchar(int ch) { return stdout_putchar(ch); }
+int stdin_getchar(void)
+{
+    int ch;
+    do { ch = board_console_getchar(); } while (ch == -1);
+    return ch < 0 ? -1 : ch;
+}
+
 /**
   Initialize stdio
 
@@ -43,7 +110,8 @@ extern int stdio_init(void);
 int stdio_init(void)
 {
 
-    if (ptrUSART->Initialize(NULL) != ARM_DRIVER_OK) {
+    if (initialized) return 0;
+    if (ptrUSART->Initialize(uart_event) != ARM_DRIVER_OK) {
         return -1;
     }
 
@@ -70,5 +138,8 @@ int stdio_init(void)
     }
 #endif
 
+    /* The first receive is armed before returning; later ones rearm in IRQ. */
+    if (ptrUSART->Receive(&rx_byte, 1U) != ARM_DRIVER_OK) return -1;
+    initialized = 1;
     return 0;
 }

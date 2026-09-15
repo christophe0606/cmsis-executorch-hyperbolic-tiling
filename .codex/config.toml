@@ -1,0 +1,12 @@
+# Open this repository root as the Codex workspace. Requires uv on PATH.
+# Adjust the serial port for your board.
+[mcp_servers.hyperbolic_uart]
+command = "uv"
+args = [
+  "run", "--script",
+  "tools/mcp_serial_bridge.py",
+  "--port", "COM5", "--baud", "115200", "--timeout", "15"
+]
+startup_timeout_sec = 30
+tool_timeout_sec = 30
+default_tools_approval_mode = "approve"

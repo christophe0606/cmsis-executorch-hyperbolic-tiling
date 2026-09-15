@@ -14,7 +14,7 @@ csolution debugs it through the on-board J-Link (`J-Link Server`, SWD at
 | `Board-U85.clayer.yml` | Layer: startup, SE services, UART4 stdio, Ethos-U85 driver, memory placement |
 | `main.c` | Pin/GPIO config, SE services, clocks, MIPI DPHY power, stdio, NPU init, then `app_main()` |
 | `board_display.c`, `board_display.h` | CDC200 display controller bring-up (ILI9806E 480x800 panel over MIPI DSI), vsync-synchronised frame buffer switch, start-of-frame counter |
-| `retarget_stdio.c` | `stdio_init()` for UART4 through the CMSIS USART driver (115200 8N1) |
+| `retarget_stdio.c`, `board_console.h` | UART4 at 115200 8N1, interrupt receive ring and stdio character hooks; see [MCP over UART](../../documentation/mcp-uart.md) |
 | `ethos_setup.c` | Ethos-U85 driver init at `NPU_HG_BASE`, IRQ 366, prints the NPU banner |
 | `ethosu_cb_dcache.c` | D-cache clean/invalidate hooks for NPU buffers outside the TCMs |
 | `linker_ac6_mram.sct.src`, `linker_gnu_mram.ld.src` | Pack linker scripts plus a 32 kB stack and the `.bss.ai_pool` section in bulk SRAM |
@@ -45,7 +45,8 @@ control register before `stdio_init()`, as the pack's layer does;
 
 Unlike the Corstone-320 layer, `RTE/` is committed for this layer (see
 `.gitignore`): Alif's stdio retarget refuses to build unless UART4 is in
-polling mode (`RTE_UART4_BLOCKING_MODE_ENABLE 1` in `RTE_Device.h`), and the
+polling mode; the local retarget now replaces it and uses interrupt mode
+(`RTE_UART4_BLOCKING_MODE_ENABLE 0` in `RTE_Device.h`). The
 Conductor-generated `pins.h`/`board_defs.h` differ from the pack defaults. The
 files are the pack's own DevKit-E8 layer configuration.
 

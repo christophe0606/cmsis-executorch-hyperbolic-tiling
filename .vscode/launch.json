@@ -52,7 +52,7 @@
             }
         },
         {
-            "name": "M55_HP JLink (launch)",
+            "name": "M55_HP CMSIS_DAP@pyOCD (launch)",
             "type": "gdbtarget",
             "request": "launch",
             "cwd": "${workspaceFolder}/",
@@ -61,38 +61,28 @@
             "auxiliaryGdb": true,
             "preLaunchTask": "CMSIS Load",
             "initCommands": [
-                "monitor reset 0",
-                "tbreak main",
-                ""
+                "monitor reset halt",
+                "tbreak main"
             ],
             "customResetCommands": [
-                "monitor reset 0",
+                "monitor reset halt",
                 "maintenance flush register-cache",
                 "maintenance flush dcache",
                 "tbreak main",
                 "continue"
             ],
             "target": {
-                "server": "JLinkGDBServerCL",
+                "server": "pyocd",
                 "serverParameters": [
-                    "-device",
-                    "AE822FA0E5597LS0_M55_HP",
-                    "-endian",
-                    "little",
-                    "-if",
-                    "swd",
-                    "-speed",
-                    "4000",
-                    "-halt",
-                    "-noir",
-                    "-vd",
-                    "-nogui",
-                    "-localhostonly",
-                    "-silent",
-                    "-port",
-                    "3333",
-                    "-TelnetPort",
-                    "4444"
+                    "gdbserver",
+                    "--probe",
+                    "cmsisdap:",
+                    "--persist",
+                    "--cbuild-run",
+                    "${command:cmsis-csolution.getCbuildRunFile}",
+                    "--quiet",
+                    "--log",
+                    "*.cbuild_run,*server=info"
                 ],
                 "port": "3333"
             },
@@ -102,7 +92,7 @@
             }
         },
         {
-            "name": "M55_HP JLink (attach)",
+            "name": "M55_HP CMSIS_DAP@pyOCD (attach)",
             "type": "gdbtarget",
             "request": "attach",
             "cwd": "${workspaceFolder}/",
@@ -113,7 +103,7 @@
                 ""
             ],
             "customResetCommands": [
-                "monitor reset 0",
+                "monitor reset halt",
                 "maintenance flush register-cache",
                 "maintenance flush dcache",
                 "tbreak main",
@@ -128,9 +118,9 @@
             }
         },
         {
-            "name": "M55_HE JLink (launch)",
+            "name": "M55_HE CMSIS_DAP@pyOCD (attach)",
             "type": "gdbtarget",
-            "request": "launch",
+            "request": "attach",
             "cwd": "${workspaceFolder}/",
             "program": "",
             "gdb": "arm-none-eabi-gdb",
@@ -139,34 +129,13 @@
                 ""
             ],
             "customResetCommands": [
-                "monitor reset 0",
+                "monitor reset halt",
                 "maintenance flush register-cache",
                 "maintenance flush dcache",
                 "tbreak main",
                 "continue"
             ],
             "target": {
-                "server": "JLinkGDBServerCL",
-                "serverParameters": [
-                    "-device",
-                    "AE822FA0E5597LS0_M55_HE",
-                    "-endian",
-                    "little",
-                    "-if",
-                    "swd",
-                    "-speed",
-                    "4000",
-                    "-halt",
-                    "-noir",
-                    "-vd",
-                    "-nogui",
-                    "-localhostonly",
-                    "-silent",
-                    "-port",
-                    "3334",
-                    "-TelnetPort",
-                    "4445"
-                ],
                 "port": "3334"
             },
             "cmsis": {
