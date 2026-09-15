@@ -63,6 +63,14 @@ solution:
             model: ${workspaceFolder}/.vscode/fvp.sh
             config-file: board/Corstone-320/fvp_config.txt
             args: "--simlimit 60"
+        - set: Benchmark
+          images:
+            - project-context: cmsis-executorch.Benchmark
+          debugger:
+            name: Arm-FVP
+            model: ${workspaceFolder}/.vscode/fvp.sh
+            config-file: board/Corstone-320/fvp_config.txt
+            args: "--simlimit 60"
 
     # Alif Ensemble E8 DevKit: Cortex-M55 high-performance core with the
     # Ethos-U85 NPU, on real hardware through the on-board J-Link (SWD).
@@ -95,6 +103,24 @@ solution:
             protocol: swd
             clock: 4000000
             start-pname: M55_HP
+        - set: Benchmark
+          images:
+            - project-context: cmsis-executorch.Benchmark
+            - project-context: M55_HE.Benchmark
+          debugger:
+            name: ULINKplus@pyOCD
+            protocol: swd
+            clock: 4000000
+            start-pname: M55_HP
+        - set: Debug
+          images:
+            - project-context: cmsis-executorch.Debug
+            - project-context: M55_HE.Debug
+          debugger:
+            name: ULINKplus@pyOCD
+            protocol: swd
+            clock: 4000000
+            start-pname: M55_HP
 
   misc:
     # CMSIS-Toolbox 2.14.1 passes -mfpu=fpv5-sp-d16 to Clang for the Cortex-M85
@@ -111,11 +137,18 @@ solution:
     - type: Debug
       debug: on
       optimize: debug
+      define:
+        - APP_FRAME_PERF_LOG
     - type: Release
       debug: off
       optimize: speed # -O3; Debug only applies this to the application groups.
       # Both cprojects additionally apply -ffast-math to tiling_kernel.cpp.
       # Keep fast-math out of the MCP/JSON validation and ExecuTorch runtime.
+    - type: Benchmark
+      debug: off
+      optimize: speed # Same optimization as Release, with frame reports enabled.
+      define:
+        - APP_FRAME_PERF_LOG
 
   projects:
     - project: ./cmsis-executorch.cproject.yml

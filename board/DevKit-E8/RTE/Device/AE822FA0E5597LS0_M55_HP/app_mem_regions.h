@@ -52,7 +52,8 @@
 // =======================
 //   <q>Combine SRAM0 & SRAM1
 //   <i> Combines SRAM0 and SRAM1 into single memory region
-#define SRAM0_SRAM1_COMBINED        1
+// E8 SRAM1 is at 0x08000000; the banks are not contiguous after reset.
+#define SRAM0_SRAM1_COMBINED        0
 // <h> SRAM
 //   <o> Base address <0x02000000-0x027FFFFF:8>
 //   <i> Defines base address of SRAM memory region.
@@ -62,10 +63,9 @@
 //   <i> Defines size of SRAM0 memory region.
 //   <i> Default: 0x00800000
 #define APP_SRAM_SIZE          0x00800000
-// Last 128 KiB: HP/HE tiling mailbox. Keep the MPU mapping at the full size;
-// the linker reserves this tail separately from the HP pools/frame buffers.
+// Last 128 KiB of SRAM1: HP/HE tiling mailbox, reserved by both linkers.
 #define APP_TILING_SHARED_SIZE 0x00020000
-#define APP_TILING_SHARED_BASE (APP_SRAM_BASE + APP_SRAM_SIZE - APP_TILING_SHARED_SIZE)
+#define APP_TILING_SHARED_BASE (APP_SRAM1_BASE + APP_SRAM1_SIZE - APP_TILING_SHARED_SIZE)
 //   <q>No zero initialize
 //   <i> Excludes SRAM0 region from zero initialization.
 #define APP_SRAM_NOINIT        1
@@ -86,10 +86,10 @@
 // </h>
 
 // <h> SRAM1
-//   <o> Base address <0x02400000-0x027FFFFF:8>
+//   <o> Base address <0x08000000-0x083FFFFF:8>
 //   <i> Defines base address of SRAM1 memory region.
-//   <i> Default: 0x02400000
-#define APP_SRAM1_BASE         0x02400000
+//   <i> Default: 0x08000000
+#define APP_SRAM1_BASE         0x08000000
 //   <o> Region size [bytes] <0x0-0x00400000:8>
 //   <i> Defines size of SRAM1 memory region.
 //   <i> Default: 0x00400000

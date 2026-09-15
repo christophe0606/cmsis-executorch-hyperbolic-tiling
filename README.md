@@ -141,12 +141,30 @@ toolchain terminal:
 cbuild cmsis-executorch.csolution.yml --active DevKit-E8@Release --update-rte
 ```
 
-Release uses `-O3` throughout and `-ffast-math` for the Helium kernel on both
-cores, with debug information disabled. The default target-set retains Debug;
-its application groups already use `-O3`. The simulator also has a Release
-target-set (`SSE-320-U85@Release`). Release outputs are in each project's
-`out/<project>/<target>/Release/` directory. Select the corresponding target-set
-before loading so the generated load configuration uses the intended images.
+Choose the build mode in Manage Solution:
+
+| Target-set | Optimization | Frame performance reports on UART |
+| --- | --- | --- |
+| **Release** | `-O3`, Helium kernel `-ffast-math`, no debug information | Disabled |
+| **Benchmark** | Same as Release on both HP and HE | Enabled |
+| **Debug** | Debug information, application groups use `-O3` | Enabled |
+
+Debug and Benchmark define `APP_FRAME_PERF_LOG`. They report the first frame
+and then roughly once per second of accumulated render time. Release compiles
+out these reports; startup messages, errors, console/MCP responses and
+debugger-visible `g_tiling_metrics` remain available.
+
+```sh
+cbuild cmsis-executorch.csolution.yml --active DevKit-E8@Benchmark --update-rte
+cbuild cmsis-executorch.csolution.yml --active DevKit-E8@Debug --update-rte
+```
+
+The default DevKit-E8 target-set selects Release for both cores. The simulator
+defaults to Debug and also has `SSE-320-U85@Release` and
+`SSE-320-U85@Benchmark` target-sets. Outputs are in each project's
+`out/<project>/<target>/<build-type>/` directory. Select the corresponding
+target-set before loading so the generated load configuration uses the intended
+images.
 
 1. With SW4 on **UART4**, open the **Serial Monitor** panel on the PRG USB
    port, 115200 baud.

@@ -17,7 +17,7 @@ csolution debugs it through ULINKplus (`ULINKplus@pyOCD`, SWD at
 | `retarget_stdio.c`, `board_console.h` | UART4 at 115200 8N1, interrupt receive ring and stdio character hooks; see [MCP over UART](../../documentation/mcp-uart.md) |
 | `ethos_setup.c` | Ethos-U85 driver init at `NPU_HG_BASE`, IRQ 366, prints the NPU banner |
 | `ethosu_cb_dcache.c` | D-cache clean/invalidate hooks for NPU buffers outside the TCMs |
-| `linker_ac6_mram.sct.src`, `linker_gnu_mram.ld.src` | Pack linker scripts plus a 32 kB stack and the `.bss.ai_pool` section in bulk SRAM |
+| `linker_ac6_mram.sct.src`, `linker_gnu_mram.ld.src` | Pack linker scripts plus a 32 kB stack and pools split across physical SRAM banks |
 | `RTE/` | Configuration files carried with the layer (see below) |
 
 ## Memory layout
@@ -26,12 +26,20 @@ csolution debugs it through ULINKplus (`ULINKplus@pyOCD`, SWD at
 |--------|---------|----------|
 | MRAM (HP application region) | `0x80200000`, 2 MB | Code, constants, the embedded `.pte` model |
 | DTCM (SRAM3) | `0x20000000` (core alias; `0x50800000` global), 1 MB | `.data`/`.bss` (including the runner's 672 kB int8 G-buffer), 96 kB heap, 32 kB stack |
-| SRAM0/SRAM1 (bulk) | `0x02000000`, 8 MB combined (`SRAM0_SRAM1_COMBINED` in `app_mem_regions.h`; the GNU script uses SRAM0 alone, 4 MB, which this demo no longer fits) | `.bss.ai_pool`: the runner's 1.5 MB method pool, 3.5 MB temp pool (NPU scratch; Vela needs 3.0 MB for the 480x800 shade graph) and 192 kB z-buffer; `.bss.lcd_frame_buf`: two 1.15 MB RGB888 frame buffers |
+| SRAM0 | `0x02000000`, 4 MB | `.bss.ai_temp_pool`: 3 MB NPU scratch pool |
+| SRAM1 | `0x08000000`, 4 MB | `.bss.ai_pool`: 1.5 MB method pool; `.bss.lcd_frame_buf`: two 1,152,000-byte RGB888 framebuffers; last 128 KiB reserved for the HP/HE mailbox |
 
 The pool sizes and sections come from the `define:` node of the layer
-(`APP_METHOD_POOL_SIZE`, `APP_TEMP_POOL_SIZE`, `APP_POOL_SECTION`,
+(`APP_METHOD_POOL_SIZE`, `APP_TEMP_POOL_SIZE`, `APP_POOL_SECTION`, `APP_TEMP_POOL_SECTION`,
 `APP_FRAMEBUFFER_SECTION`) and are consumed by `src/app_main.cpp`, as are
 `APP_HAS_DISPLAY` and `APP_DISPLAY_WIDTH/HEIGHT`.
+
+SRAM1 must use its physical base `0x08000000`. The previous combined layout
+placed it at `0x02400000`, which is inaccessible on the board after reset.
+Clearing the pools then raised an imprecise BusFault in
+`__scatterload_zeroinit`, before `main` or display initialization. Both cores
+share the corrected region header. Memory needed by C startup must already
+be powered by the boot configuration; a power request from `main` is too late.
 
 ## Dual-core memory ownership
 
@@ -43,8 +51,8 @@ HE has no board, display, UART, NPU or Secure Enclave service setup.
 |--------|--------------|--------------|
 | Shared MRAM | `0x80200000`–`0x803FFFFF` | `0x80000000`–`0x801FFFFF` |
 | Local DTCM | `0x20000000`–`0x200FFFFF` (global SRAM3 at `0x50800000`) | `0x20000000`–`0x2003FFFF` (global SRAM5 at `0x58800000`) |
-| Bulk SRAM0/SRAM1 below `0x027E0000` | All application pools and frame buffers | No allocations |
-| Shared mailbox, `0x027E0000`–`0x027FFFFF` | Request and immutable frame inputs | Response and completed strip |
+| SRAM0 and SRAM1 below `0x083E0000` | All application pools and frame buffers | No allocations |
+| Shared mailbox, `0x083E0000`–`0x083FFFFF` | Request and immutable frame inputs | Response and completed strip |
 | MRAM user area, `0x80400000`–`0x8057FFFF` | Available to HP's linker | No allocations |
 
 The identical local TCM addresses refer to different physical memories on
@@ -59,7 +67,7 @@ includes that same header, so the region definitions stay consistent.
 `M55_HE/linker_ac6_mram.sct.src` limits HE's code/data to `APP_MRAM_HE_SIZE`
 and local TCM, and checks the MRAM partition boundaries. Both AC6 scripts
 reserve the mailbox as an `EMPTY` region (no startup initialization).
-The HP pool region ends before it; the MPU still maps the entire 8 MB SRAM.
+The HP SRAM1 allocation ends before it; the MPU maps both physical 4 MB banks.
 
 ### Parallel Helium rendering
 

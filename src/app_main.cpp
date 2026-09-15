@@ -90,6 +90,11 @@ tiling::WorkerClient g_worker;
 #else
 #define APP_POOL_ATTRIBUTES
 #endif
+#ifdef APP_TEMP_POOL_SECTION
+#define APP_TEMP_POOL_ATTRIBUTES __attribute__((section(APP_TEMP_POOL_SECTION)))
+#else
+#define APP_TEMP_POOL_ATTRIBUTES APP_POOL_ATTRIBUTES
+#endif
 #ifdef APP_FRAMEBUFFER_SECTION
 #define APP_FRAMEBUFFER_ATTRIBUTES __attribute__((section(APP_FRAMEBUFFER_SECTION)))
 #else
@@ -99,7 +104,7 @@ tiling::WorkerClient g_worker;
 constexpr size_t kMethodPoolSize = APP_METHOD_POOL_SIZE;
 constexpr size_t kTempPoolSize = APP_TEMP_POOL_SIZE;
 alignas(16) uint8_t g_method_pool[kMethodPoolSize] APP_POOL_ATTRIBUTES;
-alignas(16) uint8_t g_temp_pool[kTempPoolSize] APP_POOL_ATTRIBUTES;
+alignas(16) uint8_t g_temp_pool[kTempPoolSize] APP_TEMP_POOL_ATTRIBUTES;
 
 constexpr int32_t kRgbShape[] = MODEL_UPSCALE_INPUT0_SHAPE;
 constexpr int kWidth = kRgbShape[3], kHeight = kRgbShape[2];
@@ -550,7 +555,9 @@ extern "C" int app_main(void) {
   printf("display %s (%ld); type help for controls\n", display_on ? "on" : "failed", static_cast<long>(ds));
 #endif
   float animation_time = 0;
+#ifdef APP_FRAME_PERF_LOG
   uint64_t cycles_since_report = 0;
+#endif
   for (int frame = 0; display_on || frame < 2; ++frame) {
     DCB->DEMCR |= DCB_DEMCR_TRCENA_Msk;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -570,9 +577,10 @@ extern "C" int app_main(void) {
     const int width = kFrameWidth / scale, height = kFrameHeight / scale;
     const int step = g_settings.half ? kHeight - 2 : kHeight;
     const int halo = g_settings.half ? 1 : 0;
-    const int samples = g_settings.aa ? 4 : 1;
     uint64_t geometry_cycles = 0, upscale_cycles = 0;
+#ifdef APP_FRAME_PERF_LOG
     uint32_t rounds = 0, vectors = 0, capped = 0;
+#endif
     const int columns = width / kWidth;
     const int tile_count = columns * ((height + step - 1) / step);
     int next_tile = 0, he_tile = -1;
@@ -616,7 +624,9 @@ extern "C" int app_main(void) {
 #endif
       if (!received) stats = tiling::render_strip(g_render, g_accum, animation_time, bx, by - halo);
       geometry_cycles += cycles() - geometry_start;
+#ifdef APP_FRAME_PERF_LOG
       rounds += stats.rounds; vectors += stats.vectors; capped += stats.capped_vectors;
+#endif
       const int rows = std::min(step, height - by);
       if (g_settings.half) {
         for (int p = 0; p < 3 * kPixels; p += 4) {
@@ -664,16 +674,19 @@ extern "C" int app_main(void) {
       back ^= 1;
     }
 #endif
+#ifdef APP_FRAME_PERF_LOG
+    // UART performance reports are enabled only in Debug and Benchmark builds.
     cycles_since_report += total_cycles;
     if (frame == 0 || cycles_since_report >= SystemCoreClock) {
       printf("frame %d: %s AA %d iter %d | geometry %.1f ms, upscale %.1f ms | render %.1f ms | rounds/vector %.2f, capped %lu/%lu\n",
-           frame, g_settings.half ? "half" : "full", samples, g_settings.iterations,
+           frame, g_settings.half ? "half" : "full", g_settings.aa ? 4 : 1, g_settings.iterations,
            us(geometry_cycles) / 1000, us(upscale_cycles) / 1000, us(total_cycles) / 1000,
            static_cast<float>(rounds) / vectors, static_cast<unsigned long>(capped), static_cast<unsigned long>(vectors));
       printf("  HE %lu/%d strips, transfer/wait %.2f ms\n",
              static_cast<unsigned long>(he_tiles), tile_count, us(he_wait_cycles) / 1000);
       cycles_since_report = 0;
     }
+#endif
     if (g_settings.animation) animation_time += us(total_cycles) * 1.0e-6f;
   }
   printf("Test_result: PASS\n\x04");

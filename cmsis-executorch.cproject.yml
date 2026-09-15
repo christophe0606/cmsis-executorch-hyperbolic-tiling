@@ -30,9 +30,9 @@ project:
       files:
         - file: ./src/app_main.cpp
         - file: ./src/tiling_kernel.cpp
-          not-for-context: .Release
+          not-for-context: [.Release, .Benchmark]
         - file: ./src/tiling_kernel.cpp
-          for-context: .Release
+          for-context: [.Release, .Benchmark]
           misc:
             - CPP:
                 - -ffast-math
