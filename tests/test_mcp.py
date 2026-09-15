@@ -165,16 +165,14 @@ class HostBridge(unittest.TestCase):
             bridge.encode_request(request("ping", {"big": "x" * 4096}))
         self.assertTrue(bridge.encode_request(request("ping")).endswith(b"\n"))
 
-    def test_stdio_and_serial_end_to_end(self):
+    def test_serial_end_to_end(self):
         serial = FakeSerial()
         diagnostics = io.StringIO()
         rpc = bridge.SerialRpc(serial, timeout=1, diagnostics=diagnostics)
         try:
-            source = io.StringIO(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
-                                 + json.dumps(request("ping", id="abc")) + "\n")
-            output = io.StringIO()
-            bridge.serve(rpc, source, output)
-            self.assertEqual(json.loads(output.getvalue()), {"jsonrpc": "2.0", "id": "abc", "result": {}})
+            self.assertIsNone(rpc.exchange({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+            self.assertEqual(rpc.exchange(request("ping", id="abc")),
+                             {"jsonrpc": "2.0", "id": "abc", "result": {}})
             self.assertIn("frame 123", diagnostics.getvalue())
             self.assertEqual(serial.writes[0], b"\n")
         finally:

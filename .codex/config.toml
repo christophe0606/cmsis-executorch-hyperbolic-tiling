@@ -1,12 +1,9 @@
-# Open this repository root as the Codex workspace. Requires uv on PATH.
-# Adjust the serial port for your board.
+# Copy this table into <workspace>/.codex/config.toml.
+# Start the shared server once from this workspace:
+# uv run --script tools/mcp_serial_bridge.py --port COM5
+# All chats connect to the same process; Codex does not launch it.
 [mcp_servers.hyperbolic_uart]
-command = "uv"
-args = [
-  "run", "--script",
-  "tools/mcp_serial_bridge.py",
-  "--port", "COM5", "--baud", "115200", "--timeout", "15"
-]
+url = "http://127.0.0.1:8765/mcp"
 startup_timeout_sec = 30
-tool_timeout_sec = 30
+tool_timeout_sec = 60
 default_tools_approval_mode = "approve"

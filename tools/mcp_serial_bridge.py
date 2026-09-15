@@ -1,15 +1,16 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["pyserial==3.5"]
+# dependencies = ["mcp==1.26.0", "pyserial==3.5"]
 # ///
-"""Forward MCP stdio to the board's newline-delimited JSON-RPC over UART.
+"""Serve the board's UART tools over a shared localhost HTTP MCP endpoint.
 
-Run with uv run tools/mcp_serial_bridge.py --port COM5. Only JSON-RPC replies
-go to stdout. Console diagnostics go to stderr. Requests are serialized; a
-timeout ends the connection without replaying an operation with unknown outcome.
+Start once: uv run --script tools/mcp_serial_bridge.py --port COM5
+Connect all MCP clients to http://127.0.0.1:8765/mcp.
+Check the running server with --smoke-test (does not open the serial port).
 """
 
 import argparse
+from contextlib import asynccontextmanager
 import json
 import queue
 import sys
@@ -117,67 +118,172 @@ class SerialRpc:
         self.reader.join(timeout=1.0)
 
 
-def serve(rpc, source, sink):
-    for line in source:
-        if not line.strip():
-            continue
-        message = json.loads(line)
+class BoardRpcError(RuntimeError):
+    """A board JSON-RPC error, without a transport failure."""
+
+
+class BoardGateway:
+    """One UART owner with IDs and a transaction lock shared by every client.
+
+    The lock lives in the worker thread, so cancellation of an HTTP request
+    cannot release it while the serial exchange is still running.
+    """
+
+    def __init__(self, rpc):
+        self.rpc = rpc
+        self.lock = threading.Lock()
+        self.next_id = 1
+        self.failure = None
+
+    def request(self, method, params=None, *, notification=False):
+        with self.lock:
+            if self.failure is not None:
+                raise RuntimeError(f"UART unavailable: {self.failure}. Restart the bridge and read status before retrying a change.")
+            message = {"jsonrpc": "2.0", "method": method}
+            if params is not None:
+                message["params"] = params
+            if not notification:
+                message["id"] = self.next_id
+                self.next_id += 1
+            # Reject invalid/oversized requests before touching the UART. Such
+            # requests must not poison an otherwise healthy shared connection.
+            encode_request(message)
+            try:
+                response = self.rpc.exchange(message)
+            except Exception as exc:
+                self.failure = str(exc)
+                raise RuntimeError(f"UART exchange failed: {exc}. Outcome may be unknown; no replay. Restart the bridge and read status before retrying a change.") from exc
+            if response is None:
+                return None
+            if "error" in response:
+                error = response["error"]
+                raise BoardRpcError(f"Board error {error['code']}: {error['message']}")
+            return response["result"]
+
+    def close(self):
+        with self.lock:
+            self.failure = self.failure or "bridge stopped"
+            self.rpc.close()
+
+
+def open_serial_rpc(port_name, baud, timeout):
+    import serial
+
+    port = serial.Serial(port=None, baudrate=baud, timeout=0.1, write_timeout=5,
+                         rtscts=False, dsrdtr=False)
+    # Leave modem control lines deasserted; do not deliberately reset the board.
+    port.dtr = False
+    port.rts = False
+    port.port = port_name
+    try:
+        port.open()
+        return SerialRpc(port, timeout)
+    except BaseException:
+        port.close()
+        raise
+
+
+def create_http_app(port_name, baud=115200, timeout=15.0, *, rpc_factory=None):
+    """Create an SDK MCP server; UART ownership follows the ASGI lifespan."""
+    import anyio
+    from mcp import types
+    from mcp.server.lowlevel import Server
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from mcp.server.transport_security import TransportSecuritySettings
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+
+    server = Server("hyperbolic-uart-bridge", version="1.0.0",
+                    instructions="All clients control the same board. Changes from other clients are immediately shared.")
+    state = {}
+
+    @server.list_tools()
+    async def list_tools():
+        return state["tools"]
+
+    @server.call_tool(validate_input=False)
+    async def call_tool(name, arguments):
+        result = await anyio.to_thread.run_sync(
+            state["gateway"].request, "tools/call", {"name": name, "arguments": arguments})
+        return types.CallToolResult.model_validate(result)
+
+    manager = StreamableHTTPSessionManager(
+        app=server, json_response=True, stateless=True,
+        security_settings=TransportSecuritySettings(
+            allowed_hosts=["127.0.0.1:*", "localhost:*"],
+            allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]))
+
+    @asynccontextmanager
+    async def lifespan(app):
+        factory = rpc_factory or (lambda: open_serial_rpc(port_name, baud, timeout))
+        gateway = BoardGateway(await anyio.to_thread.run_sync(factory))
+        state["gateway"] = gateway
         try:
-            response = rpc.exchange(message)
-        except ValueError as exc:
-            if not isinstance(message, dict) or "id" not in message:
-                raise
-            response = {"jsonrpc": "2.0", "id": message["id"],
-                        "error": {"code": -32600, "message": str(exc)}}
-        if response is not None:
-            print(json.dumps(response, separators=(",", ":"), allow_nan=False), file=sink, flush=True)
+            await anyio.to_thread.run_sync(gateway.request, "initialize", {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "hyperbolic-uart-bridge", "version": "1.0.0"}})
+            await anyio.to_thread.run_sync(
+                lambda: gateway.request("notifications/initialized", notification=True))
+            result = await anyio.to_thread.run_sync(gateway.request, "tools/list")
+            state["tools"] = [types.Tool.model_validate(tool) for tool in result["tools"]]
+            async with manager.run():
+                yield
+        finally:
+            # Finish any active exchange and release the port even on shutdown
+            # cancellation or a failed board handshake/tool discovery.
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(gateway.close)
+
+    class McpEndpoint:
+        async def __call__(self, scope, receive, send):
+            await manager.handle_request(scope, receive, send)
+
+    return Starlette(routes=[Route("/mcp", endpoint=McpEndpoint())], lifespan=lifespan)
+
+
+async def smoke_test(url):
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with streamable_http_client(url) as (reader, writer, _):
+        async with ClientSession(reader, writer) as session:
+            initialized = await session.initialize()
+            tools = await session.list_tools()
+            status = await session.call_tool("status", {})
+            print(json.dumps({"initialize": initialized.model_dump(mode="json"),
+                              "tools": tools.model_dump(mode="json"),
+                              "status": status.model_dump(mode="json")}, indent=2))
+            if status.isError:
+                raise RuntimeError("Board status failed")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", required=True, help="COM5 on Windows, /dev/ttyACM0 on Linux")
+    parser.add_argument("--port", help="COM5 on Windows, /dev/ttyACM0 on Linux; required to start the server")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=15.0, help="Reply timeout in seconds; no automatic retries")
-    parser.add_argument("--smoke-test", action="store_true", help="Initialize, list tools and read status, then exit")
+    parser.add_argument("--http-port", type=int, default=8765, help="Local HTTP port (default: 8765)")
+    parser.add_argument("--smoke-test", action="store_true", help="Check the running HTTP server; does not open UART")
     args = parser.parse_args()
     if args.timeout <= 0 or args.baud <= 0:
         parser.error("timeout and baud must be positive")
-    import serial
-
-    rpc = None
+    if not 1 <= args.http_port <= 65535:
+        parser.error("http-port must be 1..65535")
+    if not args.smoke_test and not args.port:
+        parser.error("--port is required to start the server")
     try:
-        # Leave modem control lines deasserted; do not deliberately reset the board.
-        port = serial.Serial(port=None, baudrate=args.baud, timeout=0.1, write_timeout=5,
-                             rtscts=False, dsrdtr=False)
-        port.dtr = False
-        port.rts = False
-        port.port = args.port
-        port.open()
-        rpc = SerialRpc(port, args.timeout)
+        import anyio
+        import uvicorn
+
         if args.smoke_test:
-            requests = [
-                {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-                    "protocolVersion": "2025-06-18", "capabilities": {},
-                    "clientInfo": {"name": "serial-smoke-test", "version": "1.0"}}},
-                {"jsonrpc": "2.0", "method": "notifications/initialized"},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "status"}},
-            ]
-            for message in requests:
-                response = rpc.exchange(message)
-                if response is not None:
-                    print(json.dumps(response), flush=True)
-                    if "error" in response:
-                        raise RuntimeError("Board returned a JSON-RPC error")
+            anyio.run(smoke_test, f"http://127.0.0.1:{args.http_port}/mcp")
         else:
-            serve(rpc, sys.stdin, sys.stdout)
+            uvicorn.run(create_http_app(args.port, args.baud, args.timeout),
+                        host="127.0.0.1", port=args.http_port, workers=1)
         return 0
-    except (OSError, ValueError, RuntimeError, TimeoutError, serial.SerialException) as exc:
+    except Exception as exc:
         print(f"MCP serial bridge: {exc}", file=sys.stderr, flush=True)
         return 1
-    finally:
-        if rpc is not None:
-            rpc.close()
 
 
 if __name__ == "__main__":

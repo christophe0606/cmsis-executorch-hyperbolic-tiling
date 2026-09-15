@@ -1,12 +1,17 @@
 # MCP over UART4 (no RTOS)
 
 The board runs the original Linux demo's `c_mcp` dispatcher, adapted to bare
-metal. A host bridge connects its UART transport to Codex's stdio transport:
+metal. One persistent host bridge owns the UART and exposes a localhost
+Streamable HTTP MCP endpoint shared by all Codex chats:
 
 ```text
-Codex <-> stdin/stdout bridge <-> COM5, 115200 8N1 <-> UART4 IRQ buffer
-                                                        |
-                                              MCP call between frames
+Codex chats <-> http://127.0.0.1:8765/mcp <-> one UART bridge
+                                                    |
+                                         COM5, 115200 8N1
+                                                    |
+                                           UART4 IRQ buffer
+                                                    |
+                                         MCP call between frames
 ```
 
 The original six tools retain their names and arguments: `edgeColor(color)`,
@@ -18,6 +23,13 @@ Run `tools/list` to see their schemas. Colours include both `gray` and `grey`,
 or comma-separated RGB values in [0,1]. Reset uses the board's defaults:
 full resolution, AA off, 12 reflection rounds, animated disk, symmetry 0,
 texture on, and red/blue tile colours.
+
+The C firmware remains responsible for tool definitions, argument validation,
+execution and UART JSON-RPC. The Python `mcp` package handles the HTTP MCP
+transport and client handshakes. At startup the bridge initializes its one
+board connection and discovers the tool schemas; it does not duplicate them
+in Python. HTTP tool calls are forwarded to the board. Tool discovery is
+cached until the bridge restarts, so restart it after changing firmware tools.
 
 Plane geometry uses a strip rotated 90 degrees clockwise to fill the portrait
 display. Use `geometryType(geometry="plane")` to select it.
@@ -52,45 +64,48 @@ existing output-only console path; UART MCP is enabled on DevKit-E8.
 
 ## Build and connect
 
-1. Build `cmsis-executorch.Debug+DevKit-E8` and load/run the image as usual.
-   Use the pyOCD bundled with the CMSIS VS Code debugger extension; do not
-   install another copy. On this host it is
-   `C:/Users/chrfav01/.vscode/extensions/arm.vscode-cmsis-debugger-1.8.0-win32-x64/tools/pyocd/pyocd.exe`.
+1. Build `cmsis-executorch.Debug+DevKit-E8` and load/run the image through
+   the CMSIS Developer Assistant in VS Code. Do not invoke pyOCD or GDB
+   directly or install another copy of pyOCD.
 2. Set SW4 to **UART4** and use **PRG USB**, **115200 8N1**, with no hardware
    flow control. COM5 was the detected USB serial port on this Windows host;
    verify it if cables/devices change.
 3. Close Serial Monitor and any other process holding that port. The bridge
    must be its only owner, including when using CMSIS Assistant serial tools.
-4. Test the connection from the workspace:
+4. Start the shared server **once**, from the workspace, and leave it running:
 
    ```powershell
-   uv run --script tools/mcp_serial_bridge.py --port COM5 --smoke-test
+   uv run --script tools/mcp_serial_bridge.py --port COM5
    ```
 
-   `uv` installs the bridge's pinned `pyserial==3.5` dependency in its script
-   environment on first use. The test initializes MCP, lists the tools, reads
-   status and closes the port. It does not change renderer settings.
+   `uv` installs `mcp==1.26.0` and `pyserial==3.5` in its script environment
+   on first use. The server binds only to `127.0.0.1`, port `8765`, and opens
+   COM5 once for its entire lifetime. Ctrl+C stops it and releases the UART.
+   Do not run multiple server instances or use multiple ASGI workers/reload.
+   Use `--http-port` to change the HTTP port, and update the Codex URL to match.
+5. From another terminal, test the running server:
+
+   ```powershell
+   uv run --script tools/mcp_serial_bridge.py --smoke-test
+   ```
+
+   This connects through HTTP, initializes an MCP client, lists the tools and
+   reads status. It neither opens the UART nor changes renderer settings.
 
 ## Workspace configuration for Codex
 
 Create **`.codex/config.toml` in the workspace root**, and copy the table from
 [`codex-mcp.toml`](codex-mcp.toml) into it. Merge it with any existing settings.
-Open the repository root as the Codex workspace so the relative bridge path
-resolves from that directory. Install `uv` on your PATH and adjust `COM5` to
-your board's serial port. The configuration contains no checkout-specific
-absolute paths. `${workspaceFolder}` is a VS Code convention and is not used
-in this TOML example.
+Install `uv` on your PATH and adjust `COM5` in the server startup command to
+your board's serial port. Codex connects to the running server by URL; it
+does not start a bridge per chat. The server must be running before Codex
+connects. The configuration contains no checkout-specific absolute paths.
 
 ```toml
 [mcp_servers.hyperbolic_uart]
-command = "uv"
-args = [
-  "run", "--script",
-  "tools/mcp_serial_bridge.py",
-  "--port", "COM5", "--baud", "115200", "--timeout", "15"
-]
+url = "http://127.0.0.1:8765/mcp"
 startup_timeout_sec = 30
-tool_timeout_sec = 30
+tool_timeout_sec = 60
 default_tools_approval_mode = "approve"
 ```
 
@@ -100,11 +115,18 @@ the board, including future additions. Per-tool approval entries are unnecessary
 Codex supports stdio and Streamable HTTP MCP transports; it does not open a
 serial port directly. Its project configuration is loaded for trusted projects.
 See the [official MCP configuration documentation](https://developers.openai.com/codex/mcp/).
-After creating the file, reload/reopen the Codex project so the server is
-discovered; an already-running conversation does not acquire new tools merely
-because the bridge works from a terminal. `codex mcp list` can verify the
-configuration from the workspace. The example file is supplied for you to
-copy; it is not installed automatically as an active Codex configuration.
+When migrating from the stdio configuration, disconnect the old Codex MCP
+connection/process first so it releases COM5, then start the HTTP server.
+Reload/reconnect Codex after changing the configuration; existing connections
+can retain the old settings. `codex mcp list` can verify the configuration
+from the workspace. The example file is supplied for other checkouts to copy;
+this workspace's `.codex/config.toml` already selects the HTTP endpoint.
+
+All chats see and change the same renderer state. Closing a chat does not
+close the UART. Complete UART requests/replies are serialized across clients,
+and the bridge assigns its own unique request IDs so IDs reused by different
+chats cannot collide. Serialization is per tool call: a sequence of calls
+from one chat can be interleaved with calls from another chat.
 
 ## Transport limits and recovery
 
@@ -113,13 +135,20 @@ works). Input lines are limited to 4095 bytes and JSON nesting to 16 levels.
 The bridge compacts requests and rejects oversized requests before writing.
 It serializes requests rather than pipelining them, preserving ring capacity
 while a slow frame completes. Notifications have no reply. Ordinary board
-logs are continuously drained to bridge stderr, keeping stdout valid MCP.
+logs are continuously drained to bridge stderr. HTTP client lifecycle messages
+are handled by the SDK, independently of the single board connection. Board
+JSON-RPC tool errors are returned to HTTP clients as MCP tool error results
+with the board's error code and message.
 
 Firmware discards damaged/overflowed input through the next newline rather
 than executing a truncated command. The bridge also bounds response lines.
-On timeout or disconnect it exits without retrying a potentially completed
-operation. Correct the connection/run state, restart the bridge, and read
-`status` before repeating a change. A new bridge sends an initial newline
+On timeout, disconnect or incomplete write the bridge marks the UART
+unavailable and rejects queued and subsequent calls without writing to it.
+It keeps ownership until shutdown and never retries a potentially completed
+operation. Correct the connection/run state in VS Code, restart the bridge,
+and read `status` before repeating a change. Cancelling an HTTP request does
+not abort or replay an in-progress UART transaction; a submitted change may
+still complete. A new bridge sends an initial newline
 to terminate any partial input left by a disconnected client. It does not
 deliberately toggle DTR/RTS to reset the board.
 
@@ -133,16 +162,26 @@ cmake -S tests -B tmp/mcp-tests
 cmake --build tmp/mcp-tests --config Debug
 ctest --test-dir tmp/mcp-tests -C Debug --output-on-failure
 uv run --no-project tests/test_mcp.py --server tmp/mcp-tests/Debug/mcp_host.exe -v
+uv run --script tests/test_mcp_http.py -v
 ```
 
 For a single-configuration generator or Linux, use `tmp/mcp-tests/mcp_host`
 as the executable path. Omit `--server` to run only the Python bridge tests.
 Tests cover the handshake, tool settings, invalid input, notifications,
 parser recovery, repeated calls, partial serial reads, diagnostic filtering,
-request size limits and no replay on timeout. Hardware validation is required
-separately for IRQ reception and display coexistence.
+request size limits and no replay on timeout. The HTTP tests use independent
+Python MCP SDK clients and a simulated serial device to check shared ownership,
+concurrent requests, ID isolation, client reconnection, cancellation, error
+recovery, startup cleanup and localhost Host/Origin checks. Hardware validation
+is required separately for IRQ reception and display coexistence.
 
 ## Validated on this board (2026-09-15)
+
+The hardware results below predate the shared HTTP adapter. The HTTP adapter
+passed seven hardware-free gateway/SDK integration tests, and the four serial
+bridge tests still pass. The new HTTP path has not yet been validated on the
+physical board; the six optional native firmware tests were not run for this
+host-only change.
 
 - AC6 6.24.0 DevKit-E8 build passed. Parser and argument validation use
   `-ffp-mode=full` so non-finite input checks work independently of renderer
