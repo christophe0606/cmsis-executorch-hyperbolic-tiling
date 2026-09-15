@@ -62,7 +62,8 @@ solution:
     # see README.md.
     - type: DevKit-E8
       board: Alif Semiconductor::DevKit-E8
-      device: Alif Semiconductor::AE822FA0E5597LS0:M55_HP
+      # Each project/layer selects its own processor within this device.
+      device: Alif Semiconductor::AE822FA0E5597LS0
       variables:
         - Board-Layer: $SolutionDir()$/board/DevKit-E8/Board-U85.clayer.yml
         - AI-Layer: $SolutionDir()$/ai_layer/ai_layer.clayer.yml
@@ -70,6 +71,7 @@ solution:
         - set:
           images:
             - project-context: cmsis-executorch.Debug
+            - project-context: M55_HE.Debug
           debugger:
             name: ULINKplus@pyOCD
             # This setup uses ULINKplus only; retain SWD at 4 MHz.
@@ -95,6 +97,8 @@ solution:
 
   projects:
     - project: ./cmsis-executorch.cproject.yml
+    - project: ./M55_HE/M55_HE.cproject.yml
+      for-context: +DevKit-E8
 
   # MLOps information: exported to cmsis-executorch.cbuild-mlops.yml by
   # `cbuild setup ... --active SSE-320-U85`. Retarget the NPU here and

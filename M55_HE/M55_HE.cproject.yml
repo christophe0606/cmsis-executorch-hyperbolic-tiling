@@ -1,0 +1,33 @@
+# Copyright 2026 Arm Limited and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+project:
+  device: :M55_HE
+  processor:
+    trustzone: off
+
+  misc:
+    - CPP:
+        - -std=gnu++17
+
+  components:
+    - component: CMSIS:CORE
+    - component: Device:Startup
+
+  groups:
+    - group: Application
+      optimize: speed
+      files:
+        - file: ./main.c
+        - file: ../src/tiling_kernel.cpp
+        - file: ../src/tiling_worker.cpp
+
+  linker:
+    - regions: ../board/DevKit-E8/RTE/Device/AE822FA0E5597LS0_M55_HP/app_mem_regions.h
+    - script: ./linker_ac6_mram.sct.src
+      for-compiler: AC6
+
+  output:
+    type:
+      - elf
+      - hex
+      - map

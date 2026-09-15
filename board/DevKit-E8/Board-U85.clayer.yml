@@ -28,6 +28,7 @@ layer:
         - Heap: 98304
 
   define:
+    - APP_DUAL_CORE: 1
     - CMSIS_target_header: \"DevKit-E8.h\"
     - ETHOSU85
     # The runner's memory pools (src/app_main.cpp) do not fit the 1 MB DTCM

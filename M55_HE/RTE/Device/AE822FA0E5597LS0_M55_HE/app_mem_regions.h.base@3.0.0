@@ -62,10 +62,6 @@
 //   <i> Defines size of SRAM0 memory region.
 //   <i> Default: 0x00800000
 #define APP_SRAM_SIZE          0x00800000
-// Last 128 KiB: HP/HE tiling mailbox. Keep the MPU mapping at the full size;
-// the linker reserves this tail separately from the HP pools/frame buffers.
-#define APP_TILING_SHARED_SIZE 0x00020000
-#define APP_TILING_SHARED_BASE (APP_SRAM_BASE + APP_SRAM_SIZE - APP_TILING_SHARED_SIZE)
 //   <q>No zero initialize
 //   <i> Excludes SRAM0 region from zero initialization.
 #define APP_SRAM_NOINIT        1
@@ -170,7 +166,7 @@
 //   <o0> Stack Size (in Bytes) <0x0-0x400000:8>
 //   <o1> Heap Size (in Bytes) <0x0-0x400000:8>
 #define APP_HP_STACK_SIZE      0x00002000
-#define APP_HP_HEAP_SIZE       0x00018000
+#define APP_HP_HEAP_SIZE       0x00004000
 // </h>
 
 // </h>

@@ -83,6 +83,53 @@
                 }
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Alif: Install M55_HP and M55_HE debug stubs (DevKit-E8, dual core configuration)",
+            "detail": "Programs the ATOC and both MRAM debug stubs with Alif SETOOLS for dual core debugging. Set SW4 to SEUART and set 'alif.setools.root' in your VS Code settings.",
+            "type": "shell",
+            "command": [
+                "cp './.alif/M55_HP_HE_mram_cfg.json' '${config:alif.setools.root}/build/config/M55_HP_HE_mram_cfg.json';",
+                "cp './.alif/M55_HP_mram_stub.bin' '${config:alif.setools.root}/build/images/M55_HP_mram_stub.bin';",
+                "cp './.alif/M55_HE_mram_stub.bin' '${config:alif.setools.root}/build/images/M55_HE_mram_stub.bin';",
+                "cd '${config:alif.setools.root}';",
+                "./app-gen-toc -f 'build/config/M55_HP_HE_mram_cfg.json';",
+                "./app-write-mram -p ${input:discoverCOM};"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "windows": {
+                "options": {
+                    "shell": {
+                        "executable": "powershell.exe",
+                        "args": [
+                            "-Command"
+                        ]
+                    }
+                }
+            },
+            "linux": {
+                "options": {
+                    "shell": {
+                        "executable": "/bin/bash",
+                        "args": [
+                            "-c"
+                        ]
+                    }
+                }
+            },
+            "osx": {
+                "options": {
+                    "shell": {
+                        "executable": "/bin/bash",
+                        "args": [
+                            "-c"
+                        ]
+                    }
+                }
+            },
+            "problemMatcher": []
         }
     ],
     "inputs": [

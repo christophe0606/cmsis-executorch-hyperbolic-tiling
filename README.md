@@ -109,7 +109,7 @@ The Secure Enclave boots the M55 cores from a table of contents in MRAM; the
 debugger needs that table to point at a debug stub.
 
 1. SW4 to **SEUART**, PRG USB attached.
-2. **Terminal > Run Task > Alif: Install M55_HP debug stubs (DevKit-E8, single core configuration)**. Choose COM port
+2. **Terminal > Run Task > Alif: Install M55_HP and M55_HE debug stubs (DevKit-E8, dual core configuration)**. Choose COM port
    discovery (`-d`) the first time; SETOOLS remembers the port. The task
    copies the configuration and stub from `.alif/` into the SETOOLS tree and
    runs `app-gen-toc` and `app-write-mram`.
@@ -117,12 +117,26 @@ debugger needs that table to point at a debug stub.
 
 Repeat this after another project has reprogrammed the table.
 
+This solution uses both cores. The task installs both MRAM debug stubs using
+`.alif/M55_HP_HE_mram_cfg.json` (HP at `0x80200000`, HE at `0x80000000`).
+The dual core configuration and HE stub come from the DevKit-e8 DualCore
+example in `AlifSemiconductor::Ensemble@2.2.1`; the existing HP stub is
+identical to that example's HP stub.
+
+The DevKit-E8 target builds two projects: `cmsis-executorch` runs the
+hyperbolic app on HP; `M55_HE` runs a Helium strip-rendering worker. HP owns
+the dynamic strip queue, Ethos upscaling and the display. Both images are
+included in the target-set and must be loaded together.
+The HE project is excluded from the SSE-320-U85 simulator target.
+See [the dual-core memory layout](board/DevKit-E8/README.md#dual-core-memory-ownership)
+for why their linker scripts do not conflict.
+
 ## 6. Build, run, debug
 
 1. With SW4 on **UART4**, open the **Serial Monitor** panel on the PRG USB
    port, 115200 baud.
 2. In the CMSIS view click **Build**, then **Debug** (or **Run**). Keil Studio
-   starts the J-Link GDB server over SWD, loads the image into MRAM and stops
+   starts the CMSIS Debugger with ULINKplus/pyOCD over SWD, loads both images into MRAM and stops
    at `main`; continue with F5. The console shows:
 
    ```text
