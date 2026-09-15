@@ -30,6 +30,12 @@ project:
       files:
         - file: ./src/app_main.cpp
         - file: ./src/tiling_kernel.cpp
+          not-for-context: .Release
+        - file: ./src/tiling_kernel.cpp
+          for-context: .Release
+          misc:
+            - CPP:
+                - -ffast-math
         - file: ./src/tiling_worker.cpp
           for-context: +DevKit-E8
         # EmbeddedModule: ExecuTorch's Module class without the POSIX file

@@ -133,6 +133,21 @@ for why their linker scripts do not conflict.
 
 ## 6. Build, run, debug
 
+For an optimized build, select the **Release** target-set under **DevKit-E8**
+in Manage Solution. It selects Release for both HP and HE. From a CMSIS
+toolchain terminal:
+
+```sh
+cbuild cmsis-executorch.csolution.yml --active DevKit-E8@Release --update-rte
+```
+
+Release uses `-O3` throughout and `-ffast-math` for the Helium kernel on both
+cores, with debug information disabled. The default target-set retains Debug;
+its application groups already use `-O3`. The simulator also has a Release
+target-set (`SSE-320-U85@Release`). Release outputs are in each project's
+`out/<project>/<target>/Release/` directory. Select the corresponding target-set
+before loading so the generated load configuration uses the intended images.
+
 1. With SW4 on **UART4**, open the **Serial Monitor** panel on the PRG USB
    port, 115200 baud.
 2. In the CMSIS view click **Build**, then **Debug** (or **Run**). Keil Studio

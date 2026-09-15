@@ -11,7 +11,7 @@ __pycache__/
 # are generated; the layers' RTE/ configuration files are sources.
 out/
 tmp/
-RTE/_*/
+**/RTE/_*/
 .cmsis/
 *.cbuild-idx.yml
 *.cbuild-pack.yml

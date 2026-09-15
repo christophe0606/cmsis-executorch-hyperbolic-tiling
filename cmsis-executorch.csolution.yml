@@ -55,6 +55,14 @@ solution:
             model: ${workspaceFolder}/.vscode/fvp.sh
             config-file: board/Corstone-320/fvp_config.txt
             args: "--simlimit 60"
+        - set: Release
+          images:
+            - project-context: cmsis-executorch.Release
+          debugger:
+            name: Arm-FVP
+            model: ${workspaceFolder}/.vscode/fvp.sh
+            config-file: board/Corstone-320/fvp_config.txt
+            args: "--simlimit 60"
 
     # Alif Ensemble E8 DevKit: Cortex-M55 high-performance core with the
     # Ethos-U85 NPU, on real hardware through the on-board J-Link (SWD).
@@ -70,11 +78,20 @@ solution:
       target-set:
         - set:
           images:
-            - project-context: cmsis-executorch.Debug
-            - project-context: M55_HE.Debug
+            - project-context: cmsis-executorch.Release
+            - project-context: M55_HE.Release
           debugger:
             name: ULINKplus@pyOCD
             # This setup uses ULINKplus only; retain SWD at 4 MHz.
+            protocol: swd
+            clock: 4000000
+            start-pname: M55_HP
+        - set: Release
+          images:
+            - project-context: cmsis-executorch.Release
+            - project-context: M55_HE.Release
+          debugger:
+            name: ULINKplus@pyOCD
             protocol: swd
             clock: 4000000
             start-pname: M55_HP
@@ -94,6 +111,11 @@ solution:
     - type: Debug
       debug: on
       optimize: debug
+    - type: Release
+      debug: off
+      optimize: speed # -O3; Debug only applies this to the application groups.
+      # Both cprojects additionally apply -ffast-math to tiling_kernel.cpp.
+      # Keep fast-math out of the MCP/JSON validation and ExecuTorch runtime.
 
   projects:
     - project: ./cmsis-executorch.cproject.yml
@@ -105,7 +127,8 @@ solution:
   # create_ai_layer.py picks it up on its next run.
   # https://open-cmsis-pack.github.io/cmsis-toolbox/build-overview/#mlops-information
   mlops:
-    description: NPU render, the tensor stages of a 3D pipeline (vertex transform, deferred shading) for Ethos-U85
+    description: NPU render, the tensor stages of a 3D pipeline (vertex transform,
+      deferred shading) for Ethos-U85
     npu:
       type: Ethos-U85 # explicit: the Ensemble pack lists an Ethos-U55 first
     vela:
