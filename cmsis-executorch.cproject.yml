@@ -9,6 +9,17 @@ project:
   packs:
     - pack: PyTorch::ExecuTorch@1.4.1
     - pack: ARM::CMSIS
+    - pack: ARM::CMSIS-DSP
+
+  components:
+    - component: CMSIS:DSP&Source
+      not-for-context: [.Release, .Benchmark]
+    - component: CMSIS:DSP&Source
+      for-context: [.Release, .Benchmark]
+      optimize: speed
+      misc:
+        - C:
+            - -ffast-math
 
   misc:
     - CPP:

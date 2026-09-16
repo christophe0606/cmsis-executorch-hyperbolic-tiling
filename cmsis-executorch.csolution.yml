@@ -22,6 +22,7 @@ solution:
     # to load. `cbuild setup --packs` fetches it from the public index.
     - pack: PyTorch::ExecuTorch@1.4.1
     - pack: ARM::CMSIS
+    - pack: ARM::CMSIS-DSP
     - pack: ARM::CMSIS-NN
     - pack: ARM::CMSIS-Compiler
     - pack: ARM::Cortex_DFP

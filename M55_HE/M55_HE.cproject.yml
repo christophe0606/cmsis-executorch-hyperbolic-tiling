@@ -11,6 +11,14 @@ project:
 
   components:
     - component: CMSIS:CORE
+    - component: CMSIS:DSP&Source
+      not-for-context: [.Release, .Benchmark]
+    - component: CMSIS:DSP&Source
+      for-context: [.Release, .Benchmark]
+      optimize: speed
+      misc:
+        - C:
+            - -ffast-math
     - component: Device:Startup
 
   groups:

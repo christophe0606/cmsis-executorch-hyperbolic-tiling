@@ -96,15 +96,16 @@
             "gdb": "arm-none-eabi-gdb",
             "auxiliaryGdb": true,
             "preLaunchTask": "CMSIS Load",
+            // MCP flash/run workaround: resume automatically, then verify the
+            // debug session state instead of waiting for CMSIS Run to exit.
+            "run": "all",
             "initCommands": [
-                "monitor reset halt",
-                "tbreak main"
+                "monitor reset halt"
             ],
             "customResetCommands": [
                 "monitor reset halt",
                 "maintenance flush register-cache",
                 "maintenance flush dcache",
-                "tbreak main",
                 "continue"
             ],
             "target": {
@@ -124,7 +125,7 @@
             },
             "cmsis": {
                 "cbuildRunFile": "${command:cmsis-csolution.getCbuildRunFile}",
-                "updateConfiguration": "auto"
+                "updateConfiguration": "manual"
             }
         },
         {

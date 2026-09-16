@@ -4,11 +4,19 @@
 #include <algorithm>
 #include <cmath>
 #include <arm_mve.h>
+#include "dsp/fast_math_functions.h"
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 namespace tiling {
 namespace {
+// Only three edge widths are supported. Keep the accurate libm calculation
+// at initialization, rather than repeating it for each strip and AA band.
+const float kEdgeThresholds[] = {
+    coshf(edge_width(EdgeThickness::Thin)) - 1.0f,
+    coshf(edge_width(EdgeThickness::Thick)) - 1.0f,
+    coshf(edge_width(EdgeThickness::VeryThick)) - 1.0f};
+
 // 1/x for four lanes without a vector divide: bit-hack seed, two Newton steps.
 // a - b * s for a scalar s (MVE has vfmaq_n_f32 but no vfmsq_n_f32).
 inline float32x4_t vfmsq_n_f32(float32x4_t a, float32x4_t b, float s) { return vfmaq_n_f32(a, b, -s); }
@@ -54,12 +62,16 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
   // Moebius drift, as the shader: translation (dx, 0), rotation by 5 deg/s.
   float angle_deg = fmodf(time * 5.0f, 360.0f);
   float angle = angle_deg * static_cast<float>(M_PI) / 180.0f;
-  float dx = cosf(2.0f * static_cast<float>(M_PI) * time * 0.1f) * 0.5f;
-  const float rot_c = cosf(angle), rot_s = sinf(angle);
+  // Bound the drift phase before the DSP table lookup, including long runs.
+  const float drift_angle = fmodf(time, 10.0f) * (2.0f * static_cast<float>(M_PI) * 0.1f);
+  float dx = arm_cos_f32(drift_angle) * 0.5f;
+  const float rot_c = arm_cos_f32(angle), rot_s = arm_sin_f32(angle);
   const bool animate = g_settings.animation;
 
   // Edge test: acosh(1 + hdot^2 / hdot(n,n)) <= w  <=>  hdot^2 / hdot(n,n) <= cosh(w) - 1.
-  const float edge_threshold = coshf(edge_width(g_settings.edge_thickness)) - 1.0f;
+  const float edge_threshold = kEdgeThresholds[
+      g_settings.edge_thickness == EdgeThickness::VeryThick ? 2 :
+      g_settings.edge_thickness == EdgeThickness::Thick ? 1 : 0];
   // Texture mapping of the shader for a square texture: zoom * 4 * (-latest + 0.5) + (0.6, 0.5), wrapped.
   const float tex_scale = g_settings.zoom * 4.0f;
   const float32x4_t tex_off_x = vdupq_n_f32(tex_scale * 0.5f + 0.6f);
