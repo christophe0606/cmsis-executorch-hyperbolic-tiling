@@ -51,7 +51,7 @@ struct Settings {
   bool animation = true;   // Moebius drift
   float zoom = 1.0f;       // texture zoom (the presets set it, "zoom" overrides)
   bool zoom_override = false;
-  Color edge{0.0f, 0.0f, 0.0f};
+  Color edge{1.0f, 1.0f, 1.0f};
   Color background{0.0f, 0.0f, 0.0f};
   Color tile_a{1.0f, 0.0f, 0.0f};
   Color tile_b{0.0f, 0.0f, 1.0f};
