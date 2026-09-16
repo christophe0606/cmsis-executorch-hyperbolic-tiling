@@ -392,10 +392,21 @@ int console_getchar_nonblocking() { return -1; }
 int handle_command(char* line) {
   char* cmd = strtok(line, " \t");
   if (!cmd) return 0;
-  char* arg = strtok(nullptr, " \t");
+  char* arg = strtok(nullptr, strcmp(cmd, "edge-thickness") == 0 ? "\r\n" : " \t");
+  if (arg && strcmp(cmd, "edge-thickness") == 0) {
+    while (*arg == ' ' || *arg == '\t') ++arg;
+    size_t length = strlen(arg);
+    while (length && (arg[length - 1] == ' ' || arg[length - 1] == '\t')) arg[--length] = '\0';
+  }
   if (strcmp(cmd, "help") == 0) {
     printf("commands: scale full|half | aa none|partial|full | iterations 1..40 | symmetry 0|1|2 | geometry disk|plane | animation on|off | edge <color> | background <color> | "
-           "tile a|b <color> | texture on|off | zoom <f> | reset | status | preview | probe x y  (colours: names or r,g,b)\n");
+           "edge-thickness thin|thick|very thick | tile a|b <color> | texture on|off | zoom <f> | reset | status | preview | probe x y  (colours: names or r,g,b)\n");
+  } else if (strcmp(cmd, "edge-thickness") == 0) {
+    if (!arg || !parse_edge_thickness(arg, g_settings.edge_thickness)) {
+      printf("use thin|thick|very thick\n");
+      return 0;
+    }
+    printf("edge thickness %s\n", edge_thickness_name(g_settings.edge_thickness));
   } else if (strcmp(cmd, "symmetry") == 0 && arg) {
     g_settings.symmetry = std::min(std::max(atoi(arg), 0), 2);
     printf("symmetry changed\n");
@@ -462,6 +473,7 @@ int handle_command(char* line) {
     printf("symmetry %d, geometry %s, animation %s, zoom %.2f\n", g_settings.symmetry,
            g_settings.geometry ? "plane" : "disk", g_settings.animation ? "on" : "off", g_settings.zoom);
     printf("texture %s\n", g_settings.texture ? "on" : "off");
+    printf("edge thickness %s\n", edge_thickness_name(g_settings.edge_thickness));
   } else {
     printf("unknown command; try help\n");
   }

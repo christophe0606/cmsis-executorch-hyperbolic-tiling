@@ -33,6 +33,8 @@ void mcp_tools_init(Settings& current) {
   free_tools();
   single_tool("edgeColor", "Set edge colour", "color", TYPE_STR,
               "Colour name or r,g,b with components in [0,1]");
+  single_tool("edgeThickness", "Set edge thickness", "thickness", TYPE_STR,
+              "thin (original width), thick (2x), or very thick (4x)");
   single_tool("backgroundColor", "Set background colour", "color", TYPE_STR,
               "Colour name or r,g,b with components in [0,1]");
   single_tool("animationOn", "Start or stop animation", "on", TYPE_BOOL, "Animation enabled");
@@ -84,6 +86,10 @@ extern "C" cJSON* handle_tools_call(cJSON* id, cJSON* params) {
       (!strcmp(tool, "edgeColor") ? settings->edge : settings->background) = color;
     }
     changes |= 4;
+  } else if (!strcmp(tool, "edgeThickness")) {
+    value = cJSON_GetObjectItemCaseSensitive(args, "thickness");
+    if (!cJSON_IsString(value) || !parse_edge_thickness(value->valuestring, settings->edge_thickness))
+      return err(id, MCP_INVALID_PARAMS, "thickness must be thin, thick or very thick");
   } else if (!strcmp(tool, "antialiasing")) {
     value = cJSON_GetObjectItemCaseSensitive(args, "mode");
     const cJSON* legacy = cJSON_GetObjectItemCaseSensitive(args, "on");
@@ -140,10 +146,11 @@ extern "C" cJSON* handle_tools_call(cJSON* id, cJSON* params) {
     char status[768];
     snprintf(status, sizeof(status),
              "scale %s, AA %s, iterations %d; symmetry %d, geometry %s, animation %s, zoom %.3g; texture %s; "
-             "edge %.3g,%.3g,%.3g; background %.3g,%.3g,%.3g; tile a %.3g,%.3g,%.3g; tile b %.3g,%.3g,%.3g",
+             "edge thickness %s; edge %.3g,%.3g,%.3g; background %.3g,%.3g,%.3g; tile a %.3g,%.3g,%.3g; tile b %.3g,%.3g,%.3g",
              settings->half ? "half" : "full", antialiasing_name(settings->aa), settings->iterations,
              settings->symmetry, settings->geometry ? "plane" : "disk", settings->animation ? "on" : "off",
-             settings->zoom, settings->texture ? "on" : "off", settings->edge.r, settings->edge.g, settings->edge.b,
+             settings->zoom, settings->texture ? "on" : "off", edge_thickness_name(settings->edge_thickness),
+             settings->edge.r, settings->edge.g, settings->edge.b,
              settings->background.r, settings->background.g, settings->background.b,
              settings->tile_a.r, settings->tile_a.g, settings->tile_a.b,
              settings->tile_b.r, settings->tile_b.g, settings->tile_b.b);

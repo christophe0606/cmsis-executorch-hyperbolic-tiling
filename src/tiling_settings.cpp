@@ -5,6 +5,14 @@
 #include <cmath>
 #include "tiling_settings.hpp"
 
+bool parse_edge_thickness(const char* name, EdgeThickness& out) {
+  if (!strcmp(name, "thin")) out = EdgeThickness::Thin;
+  else if (!strcmp(name, "thick")) out = EdgeThickness::Thick;
+  else if (!strcmp(name, "very thick")) out = EdgeThickness::VeryThick;
+  else return false;
+  return true;
+}
+
 bool parse_antialiasing(const char* name, Antialiasing& out) {
   if (!strcmp(name, "none") || !strcmp(name, "off")) out = Antialiasing::None;
   else if (!strcmp(name, "partial")) out = Antialiasing::Partial;

@@ -50,7 +50,9 @@ class FirmwareProtocol(unittest.TestCase):
         self.assertEqual([x["id"] for x in result], ["init", 2, 3])
         self.assertEqual(result[0]["result"]["protocolVersion"], "2025-06-18")
         tools = {t["name"]: t for t in result[1]["result"]["tools"]}
-        self.assertEqual(len(tools), 13)
+        self.assertEqual(len(tools), 14)
+        self.assertEqual(tools["edgeThickness"]["inputSchema"]["properties"]["thickness"]["type"], "string")
+        self.assertEqual(tools["edgeThickness"]["inputSchema"]["required"], ["thickness"])
         self.assertEqual(tools["textureOn"]["inputSchema"]["properties"]["on"]["type"], "boolean")
         self.assertEqual(tools["antialiasing"]["inputSchema"]["properties"]["mode"]["type"], "string")
         self.assertEqual(tools["antialiasing"]["inputSchema"]["required"], ["mode"])
@@ -74,7 +76,8 @@ class FirmwareProtocol(unittest.TestCase):
                      "animation off", "zoom 2.5", "texture off", "edge 0.5,0.5,0.5", "tile b 0,1,0"):
             self.assertIn(text, status)
         reset = result[-1]["result"]["content"][0]["text"]
-        self.assertIn("scale full, AA none, iterations 12", reset)
+        self.assertIn("scale full, AA partial, iterations 12", reset)
+        self.assertIn("edge thickness thin", reset)
         self.assertIn("texture on", reset)
         self.assertIn("symmetry 0, geometry disk, animation on, zoom 1", reset)
 
@@ -91,10 +94,31 @@ class FirmwareProtocol(unittest.TestCase):
             call("antialiasing", {"mode": "partial", "on": True}),
             call("antialiasing", {"mode": None}), call("antialiasing", {"on": 1}),
             call("textureOn", {}), call("textureOn", {"on": "false"}), call("textureOn", {"on": 0}),
+            call("edgeThickness", {}), call("edgeThickness", {"thickness": "wide"}),
+            call("edgeThickness", {"thickness": "very_thick"}),
+            call("edgeThickness", {"thickness": 2}), call("edgeThickness", {"thickness": None}),
+            call("edgeThickness", {"thickness": True}),
         ]
         result = self.exchange([call("status"), *invalid, call("status")])
         self.assertEqual(result[0]["result"], result[-1]["result"])
         self.assertTrue(all(r["error"]["code"] == -32602 for r in result[1:-1]))
+
+    def test_edge_thickness_modes_and_reset(self):
+        messages = [call("status")]
+        for thickness in ("thick", "very thick", "thin", "very thick"):
+            messages.extend([call("edgeThickness", {"thickness": thickness}), call("status")])
+        messages.extend([call("edgeThickness", {"thickness": "invalid"}), call("status"),
+                         call("reset"), call("status")])
+        result = self.exchange(messages)
+        original = result[0]["result"]["content"][0]["text"]
+        self.assertIn("edge thickness thin", original)
+        for index, thickness in enumerate(("thick", "very thick", "thin", "very thick")):
+            self.assertIn("result", result[1 + index * 2])
+            self.assertEqual(result[2 + index * 2]["result"]["content"][0]["text"],
+                             original.replace("edge thickness thin", "edge thickness " + thickness))
+        self.assertEqual(result[9]["error"]["code"], -32602)
+        self.assertEqual(result[8]["result"], result[10]["result"])
+        self.assertEqual(result[-1]["result"], result[0]["result"])
 
     def test_antialiasing_modes_and_legacy_clients(self):
         for args, mode in [({"mode": name}, name) for name in ("none", "partial", "full")] + [
@@ -103,7 +127,7 @@ class FirmwareProtocol(unittest.TestCase):
             self.assertIn("result", result[1])
             before = result[0]["result"]["content"][0]["text"]
             after = result[2]["result"]["content"][0]["text"]
-            self.assertEqual(before.replace("AA none", "AA " + mode), after)
+            self.assertEqual(before.replace("AA partial", "AA " + mode), after)
 
     def test_texture_toggle_preserves_tile_colours(self):
         result = self.exchange([

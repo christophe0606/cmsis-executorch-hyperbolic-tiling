@@ -18,11 +18,19 @@ The original six tools retain their names and arguments: `edgeColor(color)`,
 `backgroundColor(color)`, `animationOn(on)`, `geometryType(geometry)`,
 `symmetryType(symmetry)`, and `reset()`. The board also exposes
 `tileColor(tile,color)`, `renderScale(scale)`, `antialiasing(mode)`,
-`reflectionLimit(iterations)`, `textureZoom(zoom)`, `textureOn(on)`, and `status()`.
+`reflectionLimit(iterations)`, `textureZoom(zoom)`, `textureOn(on)`,
+`edgeThickness(thickness)`, and `status()`.
 Run `tools/list` to see their schemas. Colours include both `gray` and `grey`,
 or comma-separated RGB values in [0,1]. Reset uses the board's defaults:
-full resolution, AA none, 12 reflection rounds, animated disk, symmetry 0,
-texture on, and red/blue tile colours.
+full resolution, AA partial, 12 reflection rounds, animated disk, symmetry 0,
+texture on, thin edges, and red/blue tile colours.
+
+Use `edgeThickness(thickness="thin")`, `edgeThickness(thickness="thick")`, or
+`edgeThickness(thickness="very thick")` to choose edge width. These use
+hyperbolic distances 0.01 (the original width), 0.02, and 0.04 respectively,
+in both geometries and at either render resolution. Changes apply to the next
+frame. `status()` reports the thickness; `reset()` restores thin edges.
+The UART console equivalent is `edge-thickness thin|thick|very thick`.
 
 The C firmware remains responsible for tool definitions, argument validation,
 execution and UART JSON-RPC. The Python `mcp` package handles the HTTP MCP

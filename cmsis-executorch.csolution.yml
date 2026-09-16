@@ -100,8 +100,8 @@ solution:
             - project-context: M55_HE.Release
           debugger:
             name: ULINKplus@pyOCD
+            clock: 10000000
             protocol: swd
-            clock: 4000000
             start-pname: M55_HP
         - set: Benchmark
           images:

@@ -59,7 +59,7 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
   const bool animate = g_settings.animation;
 
   // Edge test: acosh(1 + hdot^2 / hdot(n,n)) <= w  <=>  hdot^2 / hdot(n,n) <= cosh(w) - 1.
-  const float edge_threshold = coshf(g_settings.edge_width) - 1.0f;
+  const float edge_threshold = coshf(edge_width(g_settings.edge_thickness)) - 1.0f;
   // Texture mapping of the shader for a square texture: zoom * 4 * (-latest + 0.5) + (0.6, 0.5), wrapped.
   const float tex_scale = g_settings.zoom * 4.0f;
   const float32x4_t tex_off_x = vdupq_n_f32(tex_scale * 0.5f + 0.6f);
