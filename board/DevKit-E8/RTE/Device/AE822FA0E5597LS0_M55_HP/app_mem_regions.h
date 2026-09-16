@@ -52,7 +52,8 @@
 // =======================
 //   <q>Combine SRAM0 & SRAM1
 //   <i> Combines SRAM0 and SRAM1 into single memory region
-// E8 SRAM1 is at 0x08000000; the banks are not contiguous after reset.
+// Keep separate linker/MPU regions for the scratch pool and framebuffers,
+// even when the board maps the banks contiguously.
 #define SRAM0_SRAM1_COMBINED        0
 // <h> SRAM
 //   <o> Base address <0x02000000-0x027FFFFF:8>
@@ -86,10 +87,12 @@
 // </h>
 
 // <h> SRAM1
-//   <o> Base address <0x08000000-0x083FFFFF:8>
+//   <o> Base address
 //   <i> Defines base address of SRAM1 memory region.
-//   <i> Default: 0x08000000
-#define APP_SRAM1_BASE         0x08000000
+//   <i> Default: 0x02400000 (E8 pack default; verify on each board)
+// The previous board used 0x08000000. The current board exposes SRAM1 at
+// 0x02400000 and faults at 0x08000000, before main during zero initialization.
+#define APP_SRAM1_BASE         0x02400000
 //   <o> Region size [bytes] <0x0-0x00400000:8>
 //   <i> Defines size of SRAM1 memory region.
 //   <i> Default: 0x00400000

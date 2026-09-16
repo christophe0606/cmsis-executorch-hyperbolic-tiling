@@ -27,19 +27,24 @@ csolution debugs it through ULINKplus (`ULINKplus@pyOCD`, SWD at
 | MRAM (HP application region) | `0x80200000`, 2 MB | Code, constants, the embedded `.pte` model |
 | DTCM (SRAM3) | `0x20000000` (core alias; `0x50800000` global), 1 MB | `.data`/`.bss` (including the runner's 672 kB int8 G-buffer), 96 kB heap, 32 kB stack |
 | SRAM0 | `0x02000000`, 4 MB | `.bss.ai_temp_pool`: 3 MB NPU scratch pool |
-| SRAM1 | `0x08000000`, 4 MB | `.bss.ai_pool`: 1.5 MB method pool; `.bss.lcd_frame_buf`: two 1,152,000-byte RGB888 framebuffers; last 128 KiB reserved for the HP/HE mailbox |
+| SRAM1 | `0x02400000`, 4 MB | `.bss.ai_pool`: 1.5 MB method pool; `.bss.lcd_frame_buf`: two 1,152,000-byte RGB888 framebuffers; last 128 KiB reserved for the HP/HE mailbox |
 
 The pool sizes and sections come from the `define:` node of the layer
 (`APP_METHOD_POOL_SIZE`, `APP_TEMP_POOL_SIZE`, `APP_POOL_SECTION`, `APP_TEMP_POOL_SECTION`,
 `APP_FRAMEBUFFER_SECTION`) and are consumed by `src/app_main.cpp`, as are
 `APP_HAS_DISPLAY` and `APP_DISPLAY_WIDTH/HEIGHT`.
 
-SRAM1 must use its physical base `0x08000000`. The previous combined layout
-placed it at `0x02400000`, which is inaccessible on the board after reset.
-Clearing the pools then raised an imprecise BusFault in
-`__scatterload_zeroinit`, before `main` or display initialization. Both cores
-share the corrected region header. Memory needed by C startup must already
-be powered by the boot configuration; a power request from `main` is too late.
+The current board exposes SRAM1 at `0x02400000`, matching the E8 pack's
+default application layout. The previous board required `0x08000000`.
+Using that previous address on the new board raised an imprecise BusFault
+in `__scatterload_zeroinit`, before `main` or display initialization; debugger
+reads failed at `0x08000000` but succeeded at both ends of
+`0x02400000`–`0x027FFFFF`. The reason the boards expose different mappings
+has not been established. When changing boards, verify the accessible range
+and set `APP_SRAM1_BASE` in the shared region header accordingly, then rebuild
+and load both cores. Keep `SRAM0_SRAM1_COMBINED` disabled so the linker retains
+separate allocations. Memory needed by C startup must already be accessible
+at boot; a power request from `main` is too late.
 
 ## Dual-core memory ownership
 
@@ -51,8 +56,8 @@ HE has no board, display, UART, NPU or Secure Enclave service setup.
 |--------|--------------|--------------|
 | Shared MRAM | `0x80200000`–`0x803FFFFF` | `0x80000000`–`0x801FFFFF` |
 | Local DTCM | `0x20000000`–`0x200FFFFF` (global SRAM3 at `0x50800000`) | `0x20000000`–`0x2003FFFF` (global SRAM5 at `0x58800000`) |
-| SRAM0 and SRAM1 below `0x083E0000` | All application pools and frame buffers | No allocations |
-| Shared mailbox, `0x083E0000`–`0x083FFFFF` | Request and immutable frame inputs | Response and completed strip |
+| SRAM0 and SRAM1 below `0x027E0000` | All application pools and frame buffers | No allocations |
+| Shared mailbox, `0x027E0000`–`0x027FFFFF` | Request and immutable frame inputs | Response and completed strip |
 | MRAM user area, `0x80400000`–`0x8057FFFF` | Available to HP's linker | No allocations |
 
 The identical local TCM addresses refer to different physical memories on
