@@ -141,7 +141,7 @@ solution:
       define:
         - APP_FRAME_PERF_LOG
     - type: Release
-      debug: off
+      debug: on # Keep source symbols for crash inspection; retain Release optimization.
       optimize: speed # -O3; Debug only applies this to the application groups.
       # Both cprojects additionally apply -ffast-math to tiling_kernel.cpp.
       # Keep fast-math out of the MCP/JSON validation and ExecuTorch runtime.
