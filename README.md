@@ -10,6 +10,11 @@ See [quality controls and measured board results](documentation/helium-quality.m
 Plane geometry is rotated 90 degrees to fill the portrait display. Use
 `texture off` (MCP: `textureOn(on=false)`) for solid red/blue tiles, or change
 their colours with `tile a|b <colour>`. `texture on` restores texture blending.
+Use `texture video` (MCP: `textureMode(mode="video")`) for live MT9M114 camera
+texture on the DevKit-E8. `textureMode(mode="off"|"on"|"video")` selects all three
+modes; the existing boolean `textureOn` tool still selects off/on.
+Disable video tinting with `video-tint off` (MCP: `videoTint(on=false)`) to show
+the camera's original colours. Tinting defaults to on and affects only video.
 
 **MCP over UART is available without an RTOS.** See
 [UART MCP and Codex workspace configuration](documentation/mcp-uart.md), including

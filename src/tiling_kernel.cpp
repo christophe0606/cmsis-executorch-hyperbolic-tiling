@@ -219,8 +219,12 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
       int32x4_t col = vaddq_n_s32(tile, 128);
       if constexpr (Textured) {
         int32x4_t tx = vldrbq_gather_offset_s32(g_texture + c * kTexels, offset);
-        // q+128 maps to RGB bytes; one rounding after the half-texture blend.
-        col = vshrq_n_s32(vaddq_n_s32(vaddq_s32(tx, tile), 257), 1);
+        // Untinted video keeps the camera RGB values. Edges, background and AA
+        // still apply below; procedural texture retains the original blend.
+        if (g_settings.texture == TextureMode::Video && !g_settings.video_tint)
+          col = vaddq_n_s32(tx, 128);
+        else
+          col = vshrq_n_s32(vaddq_n_s32(vaddq_s32(tx, tile), 257), 1);
       }
       col = vpselq_s32(vdupq_n_s32(g_colors[2][c] + 128), col, on_edge);
       col = vpselq_s32(col, vdupq_n_s32(g_colors[3][c] + 128), inside);
@@ -259,7 +263,7 @@ GeometryStats render_coverage(const RenderState& state, uint16_t* accum, float t
 }
 } // namespace
 GeometryStats render_strip(const RenderState& state, uint16_t* accum, float time, int bx, int by) {
-  return state.settings.texture ? render_coverage<true>(state, accum, time, bx, by)
+  return state.settings.texture != TextureMode::Off ? render_coverage<true>(state, accum, time, bx, by)
                                 : render_coverage<false>(state, accum, time, bx, by);
 }
 } // namespace tiling

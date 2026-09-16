@@ -1,0 +1,61 @@
+Start testing: Sep 16 10:31 Romance Daylight Time
+----------------------------------------------------------
+1/3 Testing: camera_texture
+1/3 Test: camera_texture
+Command: "C:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests/Debug/camera_texture_test.exe"
+Directory: C:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests
+"camera_texture" start time: Sep 16 10:31 Romance Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.68 sec
+----------------------------------------------------------
+Test Passed.
+"camera_texture" end time: Sep 16 10:31 Romance Daylight Time
+"camera_texture" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/3 Testing: antialiasing
+2/3 Test: antialiasing
+Command: "C:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests/Debug/antialiasing_test.exe"
+Directory: C:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests
+"antialiasing" start time: Sep 16 10:31 Romance Daylight Time
+Output:
+----------------------------------------------------------
+240x400 disk symmetry 0: center [40,119)-[200,281), AA 73.0%
+240x400 disk symmetry 1: center [40,118)-[200,282), AA 72.7%
+240x400 disk symmetry 2: center [40,117)-[200,283), AA 72.3%
+240x400 plane symmetry 0: center [8,0)-[232,400), AA 6.7%
+240x400 plane symmetry 1: center [4,0)-[236,400), AA 3.3%
+240x400 plane symmetry 2: center [4,0)-[236,400), AA 3.3%
+480x800 disk symmetry 0: center [76,234)-[404,566), AA 71.6%
+480x800 disk symmetry 1: center [76,233)-[404,567), AA 71.5%
+480x800 disk symmetry 2: center [72,232)-[408,568), AA 70.6%
+480x800 plane symmetry 0: center [8,0)-[472,800), AA 3.3%
+480x800 plane symmetry 1: center [4,0)-[476,800), AA 1.7%
+480x800 plane symmetry 2: center [4,0)-[476,800), AA 1.7%
+<end of output>
+Test time =   1.58 sec
+----------------------------------------------------------
+Test Passed.
+"antialiasing" end time: Sep 16 10:31 Romance Daylight Time
+"antialiasing" time elapsed: 00:00:01
+----------------------------------------------------------
+
+3/3 Testing: projection
+3/3 Test: projection
+Command: "C:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests/Debug/projection_test.exe"
+Directory: C:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests
+"projection" start time: Sep 16 10:31 Romance Daylight Time
+Output:
+----------------------------------------------------------
+Portrait strip covers all full/half resolution samples; disk mapping unchanged.
+<end of output>
+Test time =   7.83 sec
+----------------------------------------------------------
+Test Passed.
+"projection" end time: Sep 16 10:31 Romance Daylight Time
+"projection" time elapsed: 00:00:07
+----------------------------------------------------------
+
+End testing: Sep 16 10:31 Romance Daylight Time

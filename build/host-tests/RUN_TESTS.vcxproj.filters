@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\chrfav01\benchresults\cmsis-executorch-hyperbolic-tiling\build\host-tests\CMakeFiles\f04fa4a00dd903ff6dedbca201c93286\RUN_TESTS_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{A300832A-A38C-3F38-A41A-1AEA23C37049}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

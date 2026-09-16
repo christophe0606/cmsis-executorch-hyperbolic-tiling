@@ -9,8 +9,8 @@
 
 namespace tiling {
 namespace {
-// Version 2 carries the AA enum and center rectangle in RenderState.
-constexpr uint32_t kMagic = 0x54494c45, kVersion = 2;
+// Version 4 carries the video tint setting in RenderState.
+constexpr uint32_t kMagic = 0x54494c45, kVersion = 4;
 constexpr uint32_t kPing = 1, kRender = 2, kOk = 0, kInvalid = 1;
 struct alignas(32) Request {
   uint32_t magic, version, sequence, opcode, frame;

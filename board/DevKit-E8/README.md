@@ -5,7 +5,7 @@ core, 400 MHz) with the Ethos-U85 (256 MACs) of the Ensemble E8.
 
 Derived from the Ensemble pack's `Boards/DevKit-e8/Layers/M55_HP/Board_HP-U85.clayer.yml`
 and trimmed to what the NPU render demo needs: headless inference plus the
-MIPI DSI display. Camera, Ethernet, USB, VIO and vStream drivers are left out. The target-set in the
+MIPI DSI display and MT9M114 MIPI camera. Ethernet, USB, VIO and vStream wrappers are left out. The target-set in the
 csolution debugs it through ULINKplus (`ULINKplus@pyOCD`, SWD at
 4 MHz, `start-pname: M55_HP`).
 
@@ -14,6 +14,7 @@ csolution debugs it through ULINKplus (`ULINKplus@pyOCD`, SWD at
 | `Board-U85.clayer.yml` | Layer: startup, SE services, UART4 stdio, Ethos-U85 driver, memory placement |
 | `main.c` | Pin/GPIO config, SE services, clocks, MIPI DPHY power, stdio, NPU init, then `app_main()` |
 | `board_display.c`, `board_display.h` | CDC200 display controller bring-up (ILI9806E 480x800 panel over MIPI DSI), vsync-synchronised frame buffer switch, start-of-frame counter |
+| `board_camera.c`, `board_camera.h` | MT9M114 320x320 RGB565 snapshot capture through CPI/CSI2, cache maintenance, and conversion to the live texture |
 | `retarget_stdio.c`, `board_console.h` | UART4 at 115200 8N1, interrupt receive ring and stdio character hooks; see [MCP over UART](../../documentation/mcp-uart.md) |
 | `ethos_setup.c` | Ethos-U85 driver init at `NPU_HG_BASE`, IRQ 366, prints the NPU banner |
 | `ethosu_cb_dcache.c` | D-cache clean/invalidate hooks for NPU buffers outside the TCMs |
@@ -26,7 +27,7 @@ csolution debugs it through ULINKplus (`ULINKplus@pyOCD`, SWD at
 |--------|---------|----------|
 | MRAM (HP application region) | `0x80200000`, 2 MB | Code, constants, the embedded `.pte` model |
 | DTCM (SRAM3) | `0x20000000` (core alias; `0x50800000` global), 1 MB | `.data`/`.bss` (including the runner's 672 kB int8 G-buffer), 96 kB heap, 32 kB stack |
-| SRAM0 | `0x02000000`, 4 MB | `.bss.ai_temp_pool`: 3 MB NPU scratch pool |
+| SRAM0 | `0x02000000`, 4 MB | `.bss.ai_temp_pool`: 3 MB NPU scratch pool; `.bss.camera_frame_buf`: 200 KiB RGB565 snapshot |
 | SRAM1 | `0x02400000`, 4 MB | `.bss.ai_pool`: 1.5 MB method pool; `.bss.lcd_frame_buf`: two 1,152,000-byte RGB888 framebuffers; last 128 KiB reserved for the HP/HE mailbox |
 
 The pool sizes and sections come from the `define:` node of the layer

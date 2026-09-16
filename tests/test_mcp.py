@@ -50,7 +50,11 @@ class FirmwareProtocol(unittest.TestCase):
         self.assertEqual([x["id"] for x in result], ["init", 2, 3])
         self.assertEqual(result[0]["result"]["protocolVersion"], "2025-06-18")
         tools = {t["name"]: t for t in result[1]["result"]["tools"]}
-        self.assertEqual(len(tools), 14)
+        self.assertEqual(len(tools), 16)
+        self.assertEqual(tools["videoTint"]["inputSchema"]["properties"]["on"]["type"], "boolean")
+        self.assertEqual(tools["videoTint"]["inputSchema"]["required"], ["on"])
+        self.assertEqual(tools["textureMode"]["inputSchema"]["properties"]["mode"]["type"], "string")
+        self.assertEqual(tools["textureMode"]["inputSchema"]["required"], ["mode"])
         self.assertEqual(tools["edgeThickness"]["inputSchema"]["properties"]["thickness"]["type"], "string")
         self.assertEqual(tools["edgeThickness"]["inputSchema"]["required"], ["thickness"])
         self.assertEqual(tools["textureOn"]["inputSchema"]["properties"]["on"]["type"], "boolean")
@@ -140,6 +144,52 @@ class FirmwareProtocol(unittest.TestCase):
         self.assertIn("texture off", solid)
         self.assertIn("tile a 1,1,0; tile b 0,0,1", solid)
         self.assertEqual(solid.replace("texture off", "texture on"), textured)
+
+    def test_video_texture_modes_and_legacy_clients(self):
+        for name, args, mode in [
+            ("textureMode", {"mode": "off"}, "off"),
+            ("textureMode", {"mode": "on"}, "on"),
+            ("textureMode", {"mode": "video"}, "video"),
+            ("textureOn", {"on": True}, "on"),
+            ("textureOn", {"on": False}, "off"),
+        ]:
+            result = self.exchange([
+                call("tileColor", {"tile": "a", "color": "yellow"}),
+                call("textureMode", {"mode": "video"}), call("status"),
+                call(name, args), call("status"), call("reset"), call("status"),
+            ])
+            before = result[2]["result"]["content"][0]["text"]
+            after = result[4]["result"]["content"][0]["text"]
+            self.assertIn("texture video", before)
+            self.assertIn("tile a 1,1,0", before)
+            self.assertEqual(before.replace("texture video", "texture " + mode), after)
+            self.assertIn("texture on", result[6]["result"]["content"][0]["text"])
+        invalid = [call("textureMode", args) for args in
+                   ({}, {"mode": "camera"}, {"mode": True}, {"mode": 2}, {"mode": None})]
+        result = self.exchange([call("textureMode", {"mode": "video"}), call("status"),
+                                *invalid, call("status")])
+        self.assertEqual(result[1]["result"], result[-1]["result"])
+        self.assertTrue(all(r["error"]["code"] == -32602 for r in result[2:-1]))
+
+    def test_video_tint_preserves_modes_colours_and_rejects_invalid(self):
+        result = self.exchange([
+            call("textureMode", {"mode": "video"}), call("status"),
+            call("videoTint", {"on": False}), call("status"),
+            call("textureMode", {"mode": "on"}), call("textureMode", {"mode": "video"}), call("status"),
+            call("videoTint", {"on": True}), call("status"),
+            call("videoTint", {"on": False}), call("reset"), call("status"),
+        ])
+        tinted = result[1]["result"]["content"][0]["text"]
+        untinted = result[3]["result"]["content"][0]["text"]
+        self.assertEqual(tinted.replace("video tint on", "video tint off"), untinted)
+        self.assertEqual(result[3]["result"], result[6]["result"])
+        self.assertEqual(result[1]["result"], result[8]["result"])
+        self.assertIn("video tint on", result[-1]["result"]["content"][0]["text"])
+        invalid = [call("videoTint", args) for args in
+                   ({}, {"on": "false"}, {"on": 0}, {"on": None}, {"on": []})]
+        result = self.exchange([call("videoTint", {"on": False}), call("status"), *invalid, call("status")])
+        self.assertEqual(result[1]["result"], result[-1]["result"])
+        self.assertTrue(all(r["error"]["code"] == -32602 for r in result[2:-1]))
 
     def test_bad_envelopes_and_recovery(self):
         result = self.exchange(["{broken", "[]", "{}", '{"jsonrpc":"1.0","method":"ping","id":1}',

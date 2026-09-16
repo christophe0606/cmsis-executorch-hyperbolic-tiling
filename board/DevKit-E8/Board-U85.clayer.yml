@@ -8,7 +8,7 @@
 # Enclave services (clocks, pin mux), a UART-backed stdout on the PRG USB
 # connector, the Ethos-U driver, and the MIPI DSI display (CDC200 controller,
 # ILI9806E 480x800 panel) that the NPU render demo scans its frames out on.
-# Camera, Ethernet, USB, VIO and the vStream drivers are omitted.
+# Ethernet, USB, VIO and the vStream wrappers are omitted.
 layer:
   type: Board
   description: DevKit-E8 board setup for headless Ethos-U85 inference on M55_HP
@@ -42,6 +42,7 @@ layer:
     # in this section (SRAM1, next to the method pool) and presents them
     # through board_display.c.
     - APP_HAS_DISPLAY: 1
+    - APP_HAS_CAMERA: 1
     - APP_FRAMEBUFFER_SECTION: \".bss.lcd_frame_buf\"
     - APP_DISPLAY_WIDTH: 480
     - APP_DISPLAY_HEIGHT: 800
@@ -66,6 +67,7 @@ layer:
     - component: CMSIS:CORE
 
     - component: CMSIS Driver:USART
+    - component: CMSIS Driver:I2C
     # The ILI9806E panel driver drives its reset and backlight pins through
     # the CMSIS GPIO driver.
     - component: CMSIS Driver:GPIO
@@ -87,6 +89,9 @@ layer:
     - component: Device:SOC Peripherals:GPIO
     - component: Device:SOC Peripherals:MIPI DSI
     - component: Device:SOC Peripherals:MIPI DSI CSI2 DPHY
+    - component: BSP:External peripherals:CAMERA Sensor MT9M114
+    - component: Device:SOC Peripherals:CPI
+    - component: Device:SOC Peripherals:MIPI CSI2
 
     - component: Machine Learning:NPU Support:Ethos-U Driver&Generic U85
 
@@ -105,6 +110,8 @@ layer:
         - file: ./board_console.h
         - file: ./board_display.c
         - file: ./board_display.h
+        - file: ./board_camera.c
+        - file: ./board_camera.h
 
     - group: Ethos Interface
       files:

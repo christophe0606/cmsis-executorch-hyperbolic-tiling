@@ -1,0 +1,4 @@
+camera_texture 1 0.683376
+antialiasing 1 1.57649
+projection 1 7.83243
+---

@@ -5,6 +5,14 @@
 #include <cmath>
 #include "tiling_settings.hpp"
 
+bool parse_texture_mode(const char* name, TextureMode& out) {
+  if (!strcmp(name, "off")) out = TextureMode::Off;
+  else if (!strcmp(name, "on")) out = TextureMode::On;
+  else if (!strcmp(name, "video")) out = TextureMode::Video;
+  else return false;
+  return true;
+}
+
 bool parse_edge_thickness(const char* name, EdgeThickness& out) {
   if (!strcmp(name, "thin")) out = EdgeThickness::Thin;
   else if (!strcmp(name, "thick")) out = EdgeThickness::Thick;

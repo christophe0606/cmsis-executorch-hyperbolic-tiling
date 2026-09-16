@@ -67,7 +67,8 @@ animation on|off        the Möbius drift
 edge <colour>           edge colour: a name (black, white, red, ... navy) or r,g,b
 background <colour>
 tile a|b <colour>       the two tile colours (default red and blue, as the shader)
-texture on|off          texture blend or solid tile colours (default on)
+texture on|off|video    procedural blend, solid tile colours, or live camera (default on)
+video-tint on|off       blend video with tile colours or show original camera colours (default on)
 zoom <f>                texture zoom
 reset | status | help
 ```

@@ -40,6 +40,9 @@
 #endif
 #include "mcp_tools.hpp"
 #include "mcp.h"
+#ifdef APP_HAS_CAMERA
+#include "board_camera.h"
+#endif
 
 #ifdef APP_HAS_DISPLAY
 #include "board_display.h"
@@ -306,11 +309,13 @@ bool validate_worker() {
   static tiling::RenderState test;
   alignas(32) static uint16_t remote[3 * kPixels];
   test = g_render;
-  for (int mode = 0; mode < 24; ++mode) {
+  for (int mode = 0; mode < 48; ++mode) {
     test.settings.half = mode & 1;
-    test.settings.texture = mode & 2;
-    test.settings.geometry = (mode >> 2) & 1;
-    test.settings.aa = static_cast<Antialiasing>(mode / 8);
+    const int shade = (mode >> 1) & 3;
+    test.settings.texture = shade == 0 ? TextureMode::Off : shade == 1 ? TextureMode::On : TextureMode::Video;
+    test.settings.video_tint = shade != 3;
+    test.settings.geometry = (mode >> 3) & 1;
+    test.settings.aa = static_cast<Antialiasing>(mode / 16);
     test.settings.iterations = 40;
     const int width = test.settings.half ? kFrameWidth / 2 : kFrameWidth;
     const int height = test.settings.half ? kFrameHeight / 2 : kFrameHeight;
@@ -342,6 +347,20 @@ bool validate_worker() {
           actual.capped_vectors != expected.capped_vectors) {
         ++g_tiling_metrics.validation_errors;
         return false;
+      }
+      if (shade == 3) {
+        // Untinted video must be independent of both tile colours, including
+        // antialiased edges and the full/half-resolution halo boundaries.
+        for (int tile = 0; tile < 2; ++tile)
+          for (int c = 0; c < 3; ++c) test.colors[tile][c] = -1 - test.colors[tile][c];
+        tiling::render_strip(test, g_accum, 1.25f, bx, by);
+        for (int tile = 0; tile < 2; ++tile)
+          for (int c = 0; c < 3; ++c) test.colors[tile][c] = -1 - test.colors[tile][c];
+        ++g_tiling_metrics.validation_cases;
+        if (memcmp(remote, g_accum, sizeof(remote)) != 0) {
+          ++g_tiling_metrics.validation_errors;
+          return false;
+        }
       }
     }
   }
@@ -400,7 +419,7 @@ int handle_command(char* line) {
   }
   if (strcmp(cmd, "help") == 0) {
     printf("commands: scale full|half | aa none|partial|full | iterations 1..40 | symmetry 0|1|2 | geometry disk|plane | animation on|off | edge <color> | background <color> | "
-           "edge-thickness thin|thick|very thick | tile a|b <color> | texture on|off | zoom <f> | reset | status | preview | probe x y  (colours: names or r,g,b)\n");
+           "edge-thickness thin|thick|very thick | tile a|b <color> | texture on|off|video | video-tint on|off | zoom <f> | reset | status | preview | probe x y  (colours: names or r,g,b)\n");
   } else if (strcmp(cmd, "edge-thickness") == 0) {
     if (!arg || !parse_edge_thickness(arg, g_settings.edge_thickness)) {
       printf("use thin|thick|very thick\n");
@@ -420,9 +439,12 @@ int handle_command(char* line) {
     if (!parse_antialiasing(arg, g_settings.aa)) { printf("use none|partial|full\n"); return 0; }
     printf("AA %s\n", antialiasing_name(g_settings.aa));
   } else if (strcmp(cmd, "texture") == 0 && arg) {
-    if (strcmp(arg, "on") && strcmp(arg, "off")) { printf("use on|off\n"); return 0; }
-    g_settings.texture = strcmp(arg, "on") == 0;
+    if (!parse_texture_mode(arg, g_settings.texture)) { printf("use on|off|video\n"); return 0; }
     printf("texture %s\n", arg);
+  } else if (strcmp(cmd, "video-tint") == 0 && arg) {
+    if (strcmp(arg, "on") && strcmp(arg, "off")) { printf("use on|off\n"); return 0; }
+    g_settings.video_tint = strcmp(arg, "on") == 0;
+    printf("video tint %s\n", arg);
   } else if (strcmp(cmd, "iterations") == 0 && arg) {
     char* end;
     long n = strtol(arg, &end, 10);
@@ -472,7 +494,8 @@ int handle_command(char* line) {
     printf("scale %s, AA %s, iterations %d\n", g_settings.half ? "half" : "full", antialiasing_name(g_settings.aa), g_settings.iterations);
     printf("symmetry %d, geometry %s, animation %s, zoom %.2f\n", g_settings.symmetry,
            g_settings.geometry ? "plane" : "disk", g_settings.animation ? "on" : "off", g_settings.zoom);
-    printf("texture %s\n", g_settings.texture ? "on" : "off");
+    printf("texture %s\n", texture_mode_name(g_settings.texture));
+    printf("video tint %s\n", g_settings.video_tint ? "on" : "off");
     printf("edge thickness %s\n", edge_thickness_name(g_settings.edge_thickness));
   } else {
     printf("unknown command; try help\n");
@@ -579,7 +602,24 @@ extern "C" int app_main(void) {
     if (changed & 3) build_maps();
     if (changed & 4) quantize_colors();
     uint32_t texture_start = cycles();
-    if (g_settings.texture) update_texture(g_settings.animation ? animation_time : 0);
+    if (g_settings.texture == TextureMode::Video) {
+#ifdef APP_HAS_CAMERA
+      // The snapshot is updated before either core starts rendering this frame.
+      int32_t camera_result = camera_update_texture(g_texture, kTextureSize);
+#else
+      int32_t camera_result = -1;
+#endif
+      if (camera_result < 0) {
+        printf("video texture unavailable (%ld); restoring texture on\n", static_cast<long>(camera_result));
+        g_settings.texture = TextureMode::On;
+      }
+    }
+    if (g_settings.texture != TextureMode::Video) {
+#ifdef APP_HAS_CAMERA
+      camera_stop();
+#endif
+      if (g_settings.texture == TextureMode::On) update_texture(g_settings.animation ? animation_time : 0);
+    }
     uint64_t total_cycles = cycles() - texture_start;
 #ifdef APP_HAS_DISPLAY
     if (display_on && frame && display_wait_frame(g_frame_target_free_after) != 0) {

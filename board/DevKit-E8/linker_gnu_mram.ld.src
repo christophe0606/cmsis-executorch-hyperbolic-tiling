@@ -178,6 +178,7 @@ SECTIONS
   .bss.at_sram0 (NOLOAD) : ALIGN(16)
   {
     *(.bss.ai_temp_pool)
+    *(.bss.camera_frame_buf)
   } > SRAM0
 
   .bss.at_sram1 (NOLOAD) : ALIGN(32)
@@ -185,7 +186,6 @@ SECTIONS
     *(.bss.ai_pool)
     *(.bss.lcd_crop_and_interpolate_buf)
     *(.bss.lcd_frame_buf)
-    *(.bss.camera_frame_buf)
     *(.bss.camera_frame_bayer_to_rgb_buf)
   } > SRAM1
 #endif

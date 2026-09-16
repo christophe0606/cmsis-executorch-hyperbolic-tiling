@@ -18,8 +18,8 @@ The original six tools retain their names and arguments: `edgeColor(color)`,
 `backgroundColor(color)`, `animationOn(on)`, `geometryType(geometry)`,
 `symmetryType(symmetry)`, and `reset()`. The board also exposes
 `tileColor(tile,color)`, `renderScale(scale)`, `antialiasing(mode)`,
-`reflectionLimit(iterations)`, `textureZoom(zoom)`, `textureOn(on)`,
-`edgeThickness(thickness)`, and `status()`.
+`reflectionLimit(iterations)`, `textureZoom(zoom)`, `textureOn(on)`, `textureMode(mode)`,
+`videoTint(on)`, `edgeThickness(thickness)`, and `status()`.
 Run `tools/list` to see their schemas. Colours include both `gray` and `grey`,
 or comma-separated RGB values in [0,1]. Reset uses the board's defaults:
 full resolution, AA partial, 12 reflection rounds, animated disk, symmetry 0,
@@ -45,7 +45,31 @@ Use `textureOn(on=false)` for solid tile colours, then `tileColor(tile="a",
 color="red")` and `tileColor(tile="b",color="blue")` to choose the two colours.
 Edges, animation and antialiasing still work. `textureOn(on=true)` restores
 the texture blend without changing the selected colours. The equivalent
-UART console command is `texture on|off`; `status()` reports the current mode.
+UART console command is `texture on|off|video`; `status()` reports the current mode.
+
+`textureMode(mode="video")` uses the DevKit-E8 MT9M114 MIPI camera as the texture.
+`mode="on"` selects the procedural texture and `mode="off"` selects solid colours.
+The legacy `textureOn(on=true)` always selects procedural texture, including when
+switching from video. Camera updates continue with animation off; zoom, tile colours,
+geometry, antialiasing and both render scales apply to video as usual.
+
+Use `videoTint(on=false)` to disable tile-colour tinting and show the camera's
+original colours. `videoTint(on=true)` restores the default 50/50 blend with tile
+colours. The console equivalent is `video-tint off|on`. This setting affects only
+video, preserves tile A/B colours, and is remembered across texture-mode changes.
+Edges, background, antialiasing and upscaling still apply. `status()` reports
+`video tint on|off`; `reset()` restores tinting on.
+
+The camera captures 320x320 RGB565 snapshots into a 200 KiB buffer in SRAM0, then
+resamples each completed snapshot to the renderer's 128x128 planar int8 texture.
+The next capture overlaps rendering, while both cores use an immutable texture.
+Until the first camera frame arrives, the previous texture remains visible. Leaving
+video mode stops capture. A camera error or a two-second capture timeout restores
+procedural mode with a console diagnostic; selecting video again retries camera
+setup unless stopping capture failed, which requires a board reset. Targets without
+a camera also fall back to procedural texture. The board layer uses the camera
+initialization sequence from ModelNova's vStream VideoIn and the installed pack's
+MT9M114, CPI, CSI2, and I2C drivers; no RTOS or vStream wrapper is needed.
 
 ## Why no RTOS is needed
 

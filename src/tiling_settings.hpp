@@ -1,6 +1,7 @@
 // Copyright 2026 Arm Limited and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
+#include <cstdint>
 
 struct Color {
   float r, g, b;
@@ -23,12 +24,19 @@ inline float edge_width(EdgeThickness thickness) {
 }
 bool parse_edge_thickness(const char* name, EdgeThickness& out);
 
+enum class TextureMode : uint8_t { Off, On, Video };
+inline const char* texture_mode_name(TextureMode mode) {
+  return mode == TextureMode::Video ? "video" : mode == TextureMode::On ? "on" : "off";
+}
+bool parse_texture_mode(const char* name, TextureMode& out);
+
 struct Settings {
   int symmetry = 0;        // 0: (2,4,5), 1: (2,4,7), 2: (4,4,4) triangle group
   int geometry = 0;        // 0: disk, 1: plane (strip model)
   bool half = false;
   Antialiasing aa = Antialiasing::Partial;
-  bool texture = true;    // false: solid tile A/B colours
+  TextureMode texture = TextureMode::On;
+  bool video_tint = true;  // Blend live video with tile A/B colours.
   int iterations = 12;
   bool animation = true;   // Moebius drift
   float zoom = 1.0f;       // texture zoom (the presets set it, "zoom" overrides)

@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\chrfav01\benchresults\cmsis-executorch-hyperbolic-tiling\tests\antialiasing_test.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\chrfav01\benchresults\cmsis-executorch-hyperbolic-tiling\tests\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{178B383E-2E03-38F5-B31D-2A1A746AF4DC}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

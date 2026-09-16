@@ -51,6 +51,10 @@ void mcp_tools_init(Settings& current) {
               "none, partial (small triangles near the boundary), or full (whole screen)");
   single_tool("textureOn", "Enable texture blending or use solid tile colours", "on", TYPE_BOOL,
               "true: blend texture with tile colours; false: solid tile A/B colours");
+  single_tool("textureMode", "Select solid colours, procedural texture or live camera texture", "mode", TYPE_STR,
+              "off: solid tile colours; on: procedural texture; video: live camera texture");
+  single_tool("videoTint", "Enable or disable tile-colour tinting of live video", "on", TYPE_BOOL,
+              "false: original camera colours; true: blend video with tile A/B colours (default)");
   single_tool("reflectionLimit", "Set maximum reflection rounds", "iterations", TYPE_INT, "1 to 40");
   single_tool("textureZoom", "Override texture zoom", "zoom", TYPE_FLOAT, "Greater than 0, at most 100");
   single_tool("status", "Read the current renderer settings", nullptr, TYPE_STR, nullptr);
@@ -108,8 +112,16 @@ extern "C" cJSON* handle_tools_call(cJSON* id, cJSON* params) {
   } else if (!strcmp(tool, "animationOn") || !strcmp(tool, "textureOn")) {
     value = cJSON_GetObjectItemCaseSensitive(args, "on");
     if (!cJSON_IsBool(value)) return err(id, MCP_INVALID_PARAMS, "on must be boolean");
-    bool& enabled = !strcmp(tool, "animationOn") ? settings->animation : settings->texture;
-    enabled = cJSON_IsTrue(value);
+    if (!strcmp(tool, "animationOn")) settings->animation = cJSON_IsTrue(value);
+    else settings->texture = cJSON_IsTrue(value) ? TextureMode::On : TextureMode::Off;
+  } else if (!strcmp(tool, "videoTint")) {
+    value = cJSON_GetObjectItemCaseSensitive(args, "on");
+    if (!cJSON_IsBool(value)) return err(id, MCP_INVALID_PARAMS, "on must be boolean");
+    settings->video_tint = cJSON_IsTrue(value);
+  } else if (!strcmp(tool, "textureMode")) {
+    value = cJSON_GetObjectItemCaseSensitive(args, "mode");
+    if (!cJSON_IsString(value) || !parse_texture_mode(value->valuestring, settings->texture))
+      return err(id, MCP_INVALID_PARAMS, "mode must be off, on or video");
   } else if (!strcmp(tool, "geometryType")) {
     value = cJSON_GetObjectItemCaseSensitive(args, "geometry");
     if (!string_is(value, "disk") && !string_is(value, "plane"))
@@ -145,11 +157,12 @@ extern "C" cJSON* handle_tools_call(cJSON* id, cJSON* params) {
   } else if (!strcmp(tool, "status")) {
     char status[768];
     snprintf(status, sizeof(status),
-             "scale %s, AA %s, iterations %d; symmetry %d, geometry %s, animation %s, zoom %.3g; texture %s; "
+             "scale %s, AA %s, iterations %d; symmetry %d, geometry %s, animation %s, zoom %.3g; texture %s; video tint %s; "
              "edge thickness %s; edge %.3g,%.3g,%.3g; background %.3g,%.3g,%.3g; tile a %.3g,%.3g,%.3g; tile b %.3g,%.3g,%.3g",
              settings->half ? "half" : "full", antialiasing_name(settings->aa), settings->iterations,
              settings->symmetry, settings->geometry ? "plane" : "disk", settings->animation ? "on" : "off",
-             settings->zoom, settings->texture ? "on" : "off", edge_thickness_name(settings->edge_thickness),
+             settings->zoom, texture_mode_name(settings->texture), settings->video_tint ? "on" : "off",
+             edge_thickness_name(settings->edge_thickness),
              settings->edge.r, settings->edge.g, settings->edge.b,
              settings->background.r, settings->background.g, settings->background.b,
              settings->tile_a.r, settings->tile_a.g, settings->tile_a.b,

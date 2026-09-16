@@ -1,0 +1,10 @@
+^C:\USERS\CHRFAV01\BENCHRESULTS\CMSIS-EXECUTORCH-HYPERBOLIC-TILING\BUILD\HOST-TESTS\CMAKEFILES\F04FA4A00DD903FF6DEDBCA201C93286\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/tests -BC:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/chrfav01/benchresults/cmsis-executorch-hyperbolic-tiling/build/host-tests/hyperbolic_mcp_tests.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

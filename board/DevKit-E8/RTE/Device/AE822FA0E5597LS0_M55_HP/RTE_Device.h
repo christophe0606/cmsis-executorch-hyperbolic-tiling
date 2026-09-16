@@ -47,7 +47,7 @@
 //     <1=> enable
 // <i> Defines CPI ISP port
 // <i> Default: ISP port disable
-#define RTE_CPI_ISP_PORT                                      1
+#define RTE_CPI_ISP_PORT                                      0
 
 // <o> CPI Row roundup
 //     <0=> disable
@@ -943,7 +943,7 @@
 //     <4=>   320x240_RGB565
 //     <5=>   320x320_RGB565
 // <i> Default: 1
-#define RTE_MT9M114_CAMERA_SENSOR_MIPI_IMAGE_CONFIG            1
+#define RTE_MT9M114_CAMERA_SENSOR_MIPI_IMAGE_CONFIG            5
 
 // <i> MT9M114 MIPI frame width and height(derived from IMAGE_CONFIG)
 // <i> defines MT9M114 MIPI frame  width & height
