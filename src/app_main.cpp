@@ -228,9 +228,10 @@ inline int8_t q_texture(float v) {
 void quantize_colors() {
   const Color* c[] = {&g_settings.tile_a, &g_settings.tile_b, &g_settings.edge, &g_settings.background};
   for (int i = 0; i < 4; ++i) {
-    g_colors[i][0] = q_texture(c[i]->r);
-    g_colors[i][1] = q_texture(c[i]->g);
-    g_colors[i][2] = q_texture(c[i]->b);
+    const Color display = color_for_display(*c[i]);
+    g_colors[i][0] = q_texture(display.r);
+    g_colors[i][1] = q_texture(display.g);
+    g_colors[i][2] = q_texture(display.b);
   }
 }
 

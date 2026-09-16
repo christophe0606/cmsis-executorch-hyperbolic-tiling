@@ -42,6 +42,8 @@ layer:
     # in this section (SRAM1, next to the method pool) and presents them
     # through board_display.c.
     - APP_HAS_DISPLAY: 1
+    # Convert RGB triples to the panel's blue/green/red channel order.
+    - APP_DISPLAY_BGR: 1
     - APP_HAS_CAMERA: 1
     - APP_FRAMEBUFFER_SECTION: \".bss.lcd_frame_buf\"
     - APP_DISPLAY_WIDTH: 480

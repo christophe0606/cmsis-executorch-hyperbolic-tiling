@@ -6,6 +6,16 @@
 struct Color {
   float r, g, b;
 };
+
+// Settings and MCP always use RGB. Convert each colour triple for rendering;
+// the DevKit-E8 display maps its first channel to blue.
+inline Color color_for_display(Color rgb) {
+#if defined(APP_DISPLAY_BGR) && APP_DISPLAY_BGR
+  return {rgb.b, rgb.g, rgb.r};
+#else
+  return rgb;
+#endif
+}
 enum class Antialiasing { None, Partial, Full };
 inline const char* antialiasing_name(Antialiasing mode) {
   return mode == Antialiasing::Full ? "full" : mode == Antialiasing::Partial ? "partial" : "none";

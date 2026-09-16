@@ -25,6 +25,14 @@ or comma-separated RGB values in [0,1]. Reset uses the board's defaults:
 full resolution, AA partial, 12 reflection rounds, animated disk, symmetry 0,
 texture on, thin edges, and red/blue tile colours.
 
+All colour names, numeric inputs and `status()` values use standard RGB:
+`red` is `1,0,0`, `green` is `0,1,0`, and `yellow` is `1,1,0`. Clients must not
+swap red and blue. The DevKit-E8 board layer sets `APP_DISPLAY_BGR=1`; firmware
+converts each edge, background and tile RGB triple to the display channel
+order when preparing renderer colours, for both full and half resolution.
+Settings, reset defaults and the UART console retain RGB values. Camera and
+procedural texture pixels are unchanged by this colour conversion.
+
 Use `edgeThickness(thickness="thin")`, `edgeThickness(thickness="thick")`, or
 `edgeThickness(thickness="very thick")` to choose edge width. These use
 hyperbolic distances 0.01 (the original width), 0.02, and 0.04 respectively,
