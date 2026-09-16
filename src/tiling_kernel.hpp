@@ -3,6 +3,7 @@
 #pragma once
 #include <cstdint>
 #include "tiling_settings.hpp"
+#include "tiling_antialiasing.hpp"
 
 namespace tiling {
 constexpr int kWidth = 240, kHeight = 16, kPixels = kWidth * kHeight;
@@ -17,6 +18,7 @@ struct GeometryStats {
 // A frame's immutable inputs. Each core keeps its own copy in local DTCM.
 struct alignas(32) RenderState {
   Settings settings;
+  Rect aa_center;
   Plane planes[3];
   alignas(16) int8_t colors[4][3];
   alignas(16) int8_t texture[3 * kTexels];

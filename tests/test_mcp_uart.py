@@ -62,7 +62,7 @@ def main():
             tools = exchange("tools/list")["result"]["tools"]
             assert len(tools) == 13
             call("reset")
-            call("antialiasing", {"on": True})
+            call("antialiasing", {"mode": "full"})
             call("reflectionLimit", {"iterations": 40})
             # A large request arrives during full-resolution AA rendering.
             # Write in short chunks to exercise reception across UART IRQs.
@@ -73,7 +73,7 @@ def main():
             exchange("ping", {"padding": "x" * 3500})
             port.write = original_write
             call("renderScale", {"scale": "half"})
-            call("antialiasing", {"on": False})
+            call("antialiasing", {"mode": "partial"})
             call("reflectionLimit", {"iterations": 12})
             call("animationOn", {"on": False})
             call("geometryType", {"geometry": "plane"})
@@ -85,7 +85,7 @@ def main():
             call("textureOn", {"on": False})
             before = call("status")["result"]
             text = before["content"][0]["text"]
-            for expected in ("scale half", "AA off", "animation off", "geometry plane",
+            for expected in ("scale half", "AA partial", "animation off", "geometry plane",
                              "symmetry 2", "zoom 2.5", "texture off", "edge 0.5,0.5,0.5", "tile b 0,1,0"):
                 assert expected in text, text
             for name, arguments in (
@@ -103,7 +103,7 @@ def main():
                 exchange("ping")
             call("reset")
             final = call("status")["result"]["content"][0]["text"]
-            assert "scale full, AA off, iterations 12" in final, final
+            assert "scale full, AA none, iterations 12" in final, final
             assert "texture on" in final, final
             print(f"PASS: {len(records)} board requests; all tools, invalid input, 3.5KB fragmented request, repeated calls; defaults restored")
         finally:

@@ -17,11 +17,11 @@ Codex chats <-> http://127.0.0.1:8765/mcp <-> one UART bridge
 The original six tools retain their names and arguments: `edgeColor(color)`,
 `backgroundColor(color)`, `animationOn(on)`, `geometryType(geometry)`,
 `symmetryType(symmetry)`, and `reset()`. The board also exposes
-`tileColor(tile,color)`, `renderScale(scale)`, `antialiasing(on)`,
+`tileColor(tile,color)`, `renderScale(scale)`, `antialiasing(mode)`,
 `reflectionLimit(iterations)`, `textureZoom(zoom)`, `textureOn(on)`, and `status()`.
 Run `tools/list` to see their schemas. Colours include both `gray` and `grey`,
 or comma-separated RGB values in [0,1]. Reset uses the board's defaults:
-full resolution, AA off, 12 reflection rounds, animated disk, symmetry 0,
+full resolution, AA none, 12 reflection rounds, animated disk, symmetry 0,
 texture on, and red/blue tile colours.
 
 The C firmware remains responsible for tool definitions, argument validation,

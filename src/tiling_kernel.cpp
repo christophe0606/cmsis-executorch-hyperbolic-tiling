@@ -35,7 +35,8 @@ inline uint32_t predicate_bits(mve_pred16_t predicate) {
 // extends live ranges across the entire frame and causes unnecessary spills.
 template <bool Antialias, bool Textured>
 __attribute__((noinline))
-GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float time, int bx, int by) {
+GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float time, int bx, int by, Rect rect) {
+  if (rect.x0 >= rect.x1 || rect.y0 >= rect.y1) return {};
   const auto& g_settings = state.settings;
   const auto& g_planes = state.planes;
   const auto& g_colors = state.colors;
@@ -44,7 +45,8 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
   const auto& g_map_y = state.map_y;
   const auto& g_map_sin = state.map_sin;
   GeometryStats stats{};
-  stats.vectors = Antialias ? kPixels : kPixels / 4;
+  const int pixels = (rect.x1 - rect.x0) * (rect.y1 - rect.y0);
+  stats.vectors = Antialias ? pixels : pixels / 4;
   const Plane* pl = g_planes;
   const float32x4_t one = vdupq_n_f32(1.0f), zero = vdupq_n_f32(0.0f);
   const float32x4_t two = vdupq_n_f32(2.0f);
@@ -66,13 +68,13 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
   const int32x4_t tex_max = vdupq_n_s32(kTextureSize - 1);
 
   const int height = g_settings.half ? kFrameHeight / 2 : kFrameHeight;
-  for (int y = 0; y < kHeight; ++y) {
+  for (int y = rect.y0; y < rect.y1; ++y) {
     const int iy = std::min(std::max(by + y, 0), height - 1);
     float32x4_t cy = vdupq_n_f32(g_map_y[Antialias ? 1 : 0][iy]);
     if constexpr (Antialias) {
       cy = vpselq_f32(cy, vdupq_n_f32(g_map_y[2][iy]), 0x00ff);
     }
-    for (int x = 0; x < kWidth; x += Antialias ? 1 : 4) {
+    for (int x = rect.x0; x < rect.x1; x += Antialias ? 1 : 4) {
     const int p = y * kWidth + x;
     // Consume mapping values immediately, without two strip-sized float buffers.
     float32x4_t px;
@@ -219,12 +221,33 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
   return stats;
 }
 
+template <bool Textured>
+GeometryStats render_coverage(const RenderState& state, uint16_t* accum, float time, int bx, int by) {
+  constexpr Rect all{0, 0, kWidth, kHeight};
+  if (state.settings.aa == Antialiasing::None)
+    return geometry_pass<false, Textured>(state, accum, time, bx, by, all);
+  if (state.settings.aa == Antialiasing::Full)
+    return geometry_pass<true, Textured>(state, accum, time, bx, by, all);
+  const int height = state.settings.half ? kFrameHeight / 2 : kFrameHeight;
+  const Rect c = strip_center(state.aa_center, bx, by, kWidth, kHeight, height);
+  if (c.x0 == c.x1 || c.y0 == c.y1)
+    return geometry_pass<true, Textured>(state, accum, time, bx, by, all);
+  GeometryStats stats = geometry_pass<false, Textured>(state, accum, time, bx, by, c);
+  // Four disjoint rectangular bands: no circular predicate or mode branch
+  // in the hot vector loop, and no pixel is shaded twice.
+  const Rect bands[] = {{0, 0, kWidth, c.y0}, {0, c.y1, kWidth, kHeight},
+                        {0, c.y0, c.x0, c.y1}, {c.x1, c.y0, kWidth, c.y1}};
+  for (Rect band : bands) {
+    auto part = geometry_pass<true, Textured>(state, accum, time, bx, by, band);
+    stats.rounds += part.rounds;
+    stats.vectors += part.vectors;
+    stats.capped_vectors += part.capped_vectors;
+  }
+  return stats;
+}
 } // namespace
 GeometryStats render_strip(const RenderState& state, uint16_t* accum, float time, int bx, int by) {
-  return state.settings.texture
-      ? (state.settings.aa ? geometry_pass<true, true>(state, accum, time, bx, by)
-                           : geometry_pass<false, true>(state, accum, time, bx, by))
-      : (state.settings.aa ? geometry_pass<true, false>(state, accum, time, bx, by)
-                           : geometry_pass<false, false>(state, accum, time, bx, by));
+  return state.settings.texture ? render_coverage<true>(state, accum, time, bx, by)
+                                : render_coverage<false>(state, accum, time, bx, by);
 }
 } // namespace tiling

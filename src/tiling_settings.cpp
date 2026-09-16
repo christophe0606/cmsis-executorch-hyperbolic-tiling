@@ -5,6 +5,14 @@
 #include <cmath>
 #include "tiling_settings.hpp"
 
+bool parse_antialiasing(const char* name, Antialiasing& out) {
+  if (!strcmp(name, "none") || !strcmp(name, "off")) out = Antialiasing::None;
+  else if (!strcmp(name, "partial")) out = Antialiasing::Partial;
+  else if (!strcmp(name, "full") || !strcmp(name, "on")) out = Antialiasing::Full;
+  else return false;
+  return true;
+}
+
 struct NamedColor {
   const char* name;
   Color color;

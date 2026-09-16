@@ -52,6 +52,8 @@ class FirmwareProtocol(unittest.TestCase):
         tools = {t["name"]: t for t in result[1]["result"]["tools"]}
         self.assertEqual(len(tools), 13)
         self.assertEqual(tools["textureOn"]["inputSchema"]["properties"]["on"]["type"], "boolean")
+        self.assertEqual(tools["antialiasing"]["inputSchema"]["properties"]["mode"]["type"], "string")
+        self.assertEqual(tools["antialiasing"]["inputSchema"]["required"], ["mode"])
         self.assertTrue({"edgeColor", "backgroundColor", "animationOn", "geometryType", "symmetryType", "reset"} <= tools.keys())
         self.assertEqual(tools["symmetryType"]["inputSchema"]["properties"]["symmetry"]["type"], "integer")
         self.assertEqual(result[2]["result"], {})
@@ -61,18 +63,18 @@ class FirmwareProtocol(unittest.TestCase):
             call("edgeColor", {"color": "gray"}), call("backgroundColor", {"color": "0.1,0.2,0.3"}),
             call("animationOn", {"on": False}), call("geometryType", {"geometry": "plane"}),
             call("symmetryType", {"symmetry": 2}), call("renderScale", {"scale": "half"}),
-            call("antialiasing", {"on": False}), call("reflectionLimit", {"iterations": 40}),
+            call("antialiasing", {"mode": "none"}), call("reflectionLimit", {"iterations": 40}),
             call("tileColor", {"tile": "b", "color": "green"}), call("textureZoom", {"zoom": 2.5}),
             call("textureOn", {"on": False}),
             call("status"), call("reset"), call("status"),
         ])
         self.assertTrue(all("result" in r for r in result))
         status = result[-3]["result"]["content"][0]["text"]
-        for text in ("scale half", "AA off", "iterations 40", "symmetry 2", "geometry plane",
+        for text in ("scale half", "AA none", "iterations 40", "symmetry 2", "geometry plane",
                      "animation off", "zoom 2.5", "texture off", "edge 0.5,0.5,0.5", "tile b 0,1,0"):
             self.assertIn(text, status)
         reset = result[-1]["result"]["content"][0]["text"]
-        self.assertIn("scale full, AA off, iterations 12", reset)
+        self.assertIn("scale full, AA none, iterations 12", reset)
         self.assertIn("texture on", reset)
         self.assertIn("symmetry 0, geometry disk, animation on, zoom 1", reset)
 
@@ -85,11 +87,23 @@ class FirmwareProtocol(unittest.TestCase):
             call("edgeColor", {"color": "2,0,0"}), call("edgeColor", {"color": "1,0,0junk"}),
             call("tileColor", {"tile": "c", "color": "green"}), call("renderScale", {"scale": "tiny"}),
             call("antialiasing", {}), call("does_not_exist"), call("animationOn", []),
+            call("antialiasing", {"mode": "on"}), call("antialiasing", {"mode": True}),
+            call("antialiasing", {"mode": "partial", "on": True}),
+            call("antialiasing", {"mode": None}), call("antialiasing", {"on": 1}),
             call("textureOn", {}), call("textureOn", {"on": "false"}), call("textureOn", {"on": 0}),
         ]
         result = self.exchange([call("status"), *invalid, call("status")])
         self.assertEqual(result[0]["result"], result[-1]["result"])
         self.assertTrue(all(r["error"]["code"] == -32602 for r in result[1:-1]))
+
+    def test_antialiasing_modes_and_legacy_clients(self):
+        for args, mode in [({"mode": name}, name) for name in ("none", "partial", "full")] + [
+                ({"on": True}, "full"), ({"on": False}, "none")]:
+            result = self.exchange([call("status"), call("antialiasing", args), call("status")])
+            self.assertIn("result", result[1])
+            before = result[0]["result"]["content"][0]["text"]
+            after = result[2]["result"]["content"][0]["text"]
+            self.assertEqual(before.replace("AA none", "AA " + mode), after)
 
     def test_texture_toggle_preserves_tile_colours(self):
         result = self.exchange([

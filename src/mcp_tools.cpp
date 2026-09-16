@@ -45,7 +45,8 @@ void mcp_tools_init(Settings& current) {
   add_argument(tile, "color", TYPE_STR, "Colour name or r,g,b in [0,1]");
   single_tool("renderScale", "Select full resolution or half with Ethos upscaling",
               "scale", TYPE_STR, "full or half");
-  single_tool("antialiasing", "Enable or disable 2x2 antialiasing", "on", TYPE_BOOL, "AA enabled");
+  single_tool("antialiasing", "Select 2x2 antialiasing coverage", "mode", TYPE_STR,
+              "none, partial (small triangles near the boundary), or full (whole screen)");
   single_tool("textureOn", "Enable texture blending or use solid tile colours", "on", TYPE_BOOL,
               "true: blend texture with tile colours; false: solid tile A/B colours");
   single_tool("reflectionLimit", "Set maximum reflection rounds", "iterations", TYPE_INT, "1 to 40");
@@ -83,11 +84,25 @@ extern "C" cJSON* handle_tools_call(cJSON* id, cJSON* params) {
       (!strcmp(tool, "edgeColor") ? settings->edge : settings->background) = color;
     }
     changes |= 4;
-  } else if (!strcmp(tool, "animationOn") || !strcmp(tool, "antialiasing") || !strcmp(tool, "textureOn")) {
+  } else if (!strcmp(tool, "antialiasing")) {
+    value = cJSON_GetObjectItemCaseSensitive(args, "mode");
+    const cJSON* legacy = cJSON_GetObjectItemCaseSensitive(args, "on");
+    Antialiasing mode;
+    if (value) {
+      if (legacy || !cJSON_IsString(value) ||
+          (!string_is(value, "none") && !string_is(value, "partial") && !string_is(value, "full")))
+        return err(id, MCP_INVALID_PARAMS, "mode must be none, partial or full; do not also supply on");
+      parse_antialiasing(value->valuestring, mode);
+    } else {
+      // Existing clients may still hold the old tool schema until reconnect.
+      if (!cJSON_IsBool(legacy)) return err(id, MCP_INVALID_PARAMS, "mode must be none, partial or full");
+      mode = cJSON_IsTrue(legacy) ? Antialiasing::Full : Antialiasing::None;
+    }
+    settings->aa = mode;
+  } else if (!strcmp(tool, "animationOn") || !strcmp(tool, "textureOn")) {
     value = cJSON_GetObjectItemCaseSensitive(args, "on");
     if (!cJSON_IsBool(value)) return err(id, MCP_INVALID_PARAMS, "on must be boolean");
-    bool& enabled = !strcmp(tool, "animationOn") ? settings->animation :
-                    !strcmp(tool, "antialiasing") ? settings->aa : settings->texture;
+    bool& enabled = !strcmp(tool, "animationOn") ? settings->animation : settings->texture;
     enabled = cJSON_IsTrue(value);
   } else if (!strcmp(tool, "geometryType")) {
     value = cJSON_GetObjectItemCaseSensitive(args, "geometry");
@@ -126,7 +141,7 @@ extern "C" cJSON* handle_tools_call(cJSON* id, cJSON* params) {
     snprintf(status, sizeof(status),
              "scale %s, AA %s, iterations %d; symmetry %d, geometry %s, animation %s, zoom %.3g; texture %s; "
              "edge %.3g,%.3g,%.3g; background %.3g,%.3g,%.3g; tile a %.3g,%.3g,%.3g; tile b %.3g,%.3g,%.3g",
-             settings->half ? "half" : "full", settings->aa ? "on" : "off", settings->iterations,
+             settings->half ? "half" : "full", antialiasing_name(settings->aa), settings->iterations,
              settings->symmetry, settings->geometry ? "plane" : "disk", settings->animation ? "on" : "off",
              settings->zoom, settings->texture ? "on" : "off", settings->edge.r, settings->edge.g, settings->edge.b,
              settings->background.r, settings->background.g, settings->background.b,

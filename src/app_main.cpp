@@ -191,6 +191,7 @@ void apply_symmetry() {
 void build_maps() {
   int width = g_settings.half ? kFrameWidth / 2 : kFrameWidth;
   int height = g_settings.half ? kFrameHeight / 2 : kFrameHeight;
+  g_render.aa_center = tiling::partial_center(g_settings, width, height);
   const float offsets[] = {0, -0.25f, 0.25f};
   for (int sample = 0; sample < 3; ++sample) {
     for (int x = 0; x < width; ++x) {
@@ -305,14 +306,15 @@ bool validate_worker() {
   static tiling::RenderState test;
   alignas(32) static uint16_t remote[3 * kPixels];
   test = g_render;
-  for (int mode = 0; mode < 16; ++mode) {
+  for (int mode = 0; mode < 24; ++mode) {
     test.settings.half = mode & 1;
-    test.settings.aa = mode & 2;
-    test.settings.texture = mode & 4;
-    test.settings.geometry = (mode >> 3) & 1;
+    test.settings.texture = mode & 2;
+    test.settings.geometry = (mode >> 2) & 1;
+    test.settings.aa = static_cast<Antialiasing>(mode / 8);
     test.settings.iterations = 40;
     const int width = test.settings.half ? kFrameWidth / 2 : kFrameWidth;
     const int height = test.settings.half ? kFrameHeight / 2 : kFrameHeight;
+    test.aa_center = tiling::partial_center(test.settings, width, height);
     const float offsets[] = {0, -0.25f, 0.25f};
     for (int sample = 0; sample < 3; ++sample) {
       for (int x = 0; x < width; ++x) {
@@ -324,8 +326,8 @@ bool validate_worker() {
         test.map_y[sample][y] = tiling::map_vertical(y, width, height, offsets[sample], test.settings.geometry);
     }
     g_worker.begin_frame(test, 1.25f);
-    // A strip through the detailed center, and a clamped bottom/halo strip.
-    for (int by : {height / 2, height - 2}) {
+    // Center, boundary transition, and clamped top/bottom halo strips.
+    for (int by : {height / 2, test.aa_center.y0 - 1, -1, height - 2}) {
       const int bx = width - kWidth;
       g_worker.submit(bx, by);
       auto expected = tiling::render_strip(test, g_accum, 1.25f, bx, by);
@@ -392,7 +394,7 @@ int handle_command(char* line) {
   if (!cmd) return 0;
   char* arg = strtok(nullptr, " \t");
   if (strcmp(cmd, "help") == 0) {
-    printf("commands: scale full|half | aa on|off | iterations 1..40 | symmetry 0|1|2 | geometry disk|plane | animation on|off | edge <color> | background <color> | "
+    printf("commands: scale full|half | aa none|partial|full | iterations 1..40 | symmetry 0|1|2 | geometry disk|plane | animation on|off | edge <color> | background <color> | "
            "tile a|b <color> | texture on|off | zoom <f> | reset | status | preview | probe x y  (colours: names or r,g,b)\n");
   } else if (strcmp(cmd, "symmetry") == 0 && arg) {
     g_settings.symmetry = std::min(std::max(atoi(arg), 0), 2);
@@ -404,9 +406,8 @@ int handle_command(char* line) {
     printf("scale %s\n", arg);
     return 2;
   } else if (strcmp(cmd, "aa") == 0 && arg) {
-    if (strcmp(arg, "on") && strcmp(arg, "off")) { printf("use on|off\n"); return 0; }
-    g_settings.aa = strcmp(arg, "on") == 0;
-    printf("AA %s (2x2 grid)\n", arg);
+    if (!parse_antialiasing(arg, g_settings.aa)) { printf("use none|partial|full\n"); return 0; }
+    printf("AA %s\n", antialiasing_name(g_settings.aa));
   } else if (strcmp(cmd, "texture") == 0 && arg) {
     if (strcmp(arg, "on") && strcmp(arg, "off")) { printf("use on|off\n"); return 0; }
     g_settings.texture = strcmp(arg, "on") == 0;
@@ -457,7 +458,7 @@ int handle_command(char* line) {
     char* ys = strtok(nullptr, " \t");
     if (g_last_frame && ys) print_pixel(g_last_frame, atoi(arg), atoi(ys));
   } else if (strcmp(cmd, "status") == 0) {
-    printf("scale %s, AA %s, iterations %d\n", g_settings.half ? "half" : "full", g_settings.aa ? "on" : "off", g_settings.iterations);
+    printf("scale %s, AA %s, iterations %d\n", g_settings.half ? "half" : "full", antialiasing_name(g_settings.aa), g_settings.iterations);
     printf("symmetry %d, geometry %s, animation %s, zoom %.2f\n", g_settings.symmetry,
            g_settings.geometry ? "plane" : "disk", g_settings.animation ? "on" : "off", g_settings.zoom);
     printf("texture %s\n", g_settings.texture ? "on" : "off");
@@ -563,7 +564,7 @@ extern "C" int app_main(void) {
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     int changed = poll_console();
     if (changed & 1) apply_symmetry();
-    if (changed & 2) build_maps();
+    if (changed & 3) build_maps();
     if (changed & 4) quantize_colors();
     uint32_t texture_start = cycles();
     if (g_settings.texture) update_texture(g_settings.animation ? animation_time : 0);
@@ -678,8 +679,8 @@ extern "C" int app_main(void) {
     // UART performance reports are enabled only in Debug and Benchmark builds.
     cycles_since_report += total_cycles;
     if (frame == 0 || cycles_since_report >= SystemCoreClock) {
-      printf("frame %d: %s AA %d iter %d | geometry %.1f ms, upscale %.1f ms | render %.1f ms | rounds/vector %.2f, capped %lu/%lu\n",
-           frame, g_settings.half ? "half" : "full", g_settings.aa ? 4 : 1, g_settings.iterations,
+      printf("frame %d: %s AA %s iter %d | geometry %.1f ms, upscale %.1f ms | render %.1f ms | rounds/vector %.2f, capped %lu/%lu\n",
+           frame, g_settings.half ? "half" : "full", antialiasing_name(g_settings.aa), g_settings.iterations,
            us(geometry_cycles) / 1000, us(upscale_cycles) / 1000, us(total_cycles) / 1000,
            static_cast<float>(rounds) / vectors, static_cast<unsigned long>(capped), static_cast<unsigned long>(vectors));
       printf("  HE %lu/%d strips, transfer/wait %.2f ms\n",

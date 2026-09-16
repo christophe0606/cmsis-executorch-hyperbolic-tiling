@@ -1,6 +1,6 @@
 # Helium resolution, antialiasing and reflection budget
 
-The firmware now defaults to **480x800, 2x2 antialiasing, at most 12 rounds**.
+The firmware defaults to **480x800, AA none, at most 12 rounds**.
 All Möbius transforms, reflections, texture gathers, color composition and AA
 run on M55/Helium. Full resolution writes directly to RGB888. Half resolution
 uses the Ethos `upscale` method to enlarge the already antialiased colors.
@@ -11,13 +11,14 @@ UART4, 115200 baud:
 ```text
 scale full          # 480x800 geometry; native display resolution
 scale half          # 240x400 geometry, Ethos bilinear 2x enlargement
-aa on               # four samples at (+/-0.25, +/-0.25) geometry pixels
-aa off              # one center sample
+aa full             # four samples at (+/-0.25, +/-0.25) geometry pixels everywhere
+aa partial          # 2x2 samples in rectangular boundary bands only
+aa none             # one center sample everywhere
 iterations 12       # maximum rounds, 1..40; three ordered mirrors per round
 iterations 40       # reference detail budget
 animation off       # reproducible geometry and texture for comparisons
 status
-reset               # restore full resolution, AA on, 12 rounds, animation on
+reset               # restore full resolution, AA none, 12 rounds, animation on
 ```
 
 The existing symmetry, geometry, colors, texture zoom, preview and probe commands
@@ -25,6 +26,43 @@ remain available. Commands received during a frame are applied between frames.
 The A/B convention remains the same as the main-branch Helium renderer.
 
 ## How rendering works
+
+### Partial AA
+
+MCP uses `antialiasing(mode="none"|"partial"|"full")`. The previous
+`on=true/false` argument remains accepted as a compatibility alias for full/none;
+console `aa on/off` also remains accepted. Status always reports the mode name.
+After updating firmware, restart the UART bridge and reconnect MCP clients to
+refresh their cached tool schema.
+
+Partial mode estimates the projected triangle area using the hyperbolic area
+`A = pi * (1 - 1/p - 1/q - 1/r)` and the projection's local metric. The cutoff
+is **3 geometry pixels squared**, measured before half-resolution upscaling.
+For disk geometry at render width `W`, estimated area is
+`A * W^2 * (1-r^2)^2 / 16`. The center square is inscribed in the circle where
+that estimate reaches 3 pixels squared. All pixels outside the square receive
+2x2 AA, including the entire fine-triangle annulus and additional regions by
+the square's sides. The original outside-disk background shortcut still applies.
+This is a local size estimate, not an exact measurement of finite triangles.
+
+For portrait plane geometry, the metric gives area
+`A * W^2 * cos(pi*screen_x/2)^2 / pi^2`. Its boundaries are the left/right
+sides, so only two vertical bands need AA. The same 3-pixel cutoff determines
+their width. Animation is a hyperbolic isometry and does not require moving
+these projection-based regions every frame.
+
+The center is rounded inward to four-pixel vector boundaries. Rectangles are
+computed when geometry, resolution or symmetry changes, then shared by HP and
+HE. Each strip is partitioned into disjoint rectangles: the center uses the
+existing four-pixels-per-vector kernel, while the bands use the existing
+four-samples-per-pixel kernel. There are no per-pixel circle tests for selecting
+AA, duplicate center rendering, or additional frame buffers. Halo rows use the
+same global coverage as adjacent strips before Ethos interpolation.
+
+The cutoff is `kPartialTrianglePixels` in `src/tiling_antialiasing.hpp` for later
+visual tuning. The timings below predate partial mode and do not measure it.
+
+### Sampling
 
 Each subpixel independently goes through Möbius, reflection, edge classification,
 texture lookup and shading. A uint16 buffer sums **final colors**, then divides

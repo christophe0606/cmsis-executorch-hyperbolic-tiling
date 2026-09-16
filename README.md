@@ -1,8 +1,10 @@
 # ExecuTorch on Ethos-U85: hackathon guide
 
-The current Helium renderer supports **full resolution, 2x2 antialiasing and
-an adjustable reflection limit**. It defaults to full resolution, AA off and
+The current Helium renderer supports **full resolution, none/partial/full 2x2
+antialiasing and an adjustable reflection limit**. It defaults to full resolution, AA none and
 12 rounds. Use `scale half` for faster rendering with Ethos enlargement.
+Use `aa partial` (MCP: `antialiasing(mode="partial")`) to supersample the
+fine triangles near the boundary in rectangular bands; `aa full` covers the whole screen.
 See [quality controls and measured board results](documentation/helium-quality.md).
 
 Plane geometry is rotated 90 degrees to fill the portrait display. Use
