@@ -9,7 +9,7 @@ struct Settings {
   int symmetry = 0;        // 0: (2,4,5), 1: (2,4,7), 2: (4,4,4) triangle group
   int geometry = 0;        // 0: disk, 1: plane (strip model)
   bool half = false;
-  bool aa = false;
+  bool aa = true;
   bool texture = true;    // false: solid tile A/B colours
   int iterations = 12;
   bool animation = true;   // Moebius drift

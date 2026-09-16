@@ -14,9 +14,6 @@ inline float16x8_t vfmsq_n_f16(float16x8_t a, float16x8_t b, float s) { return v
 
 // 1/x for eight positive lanes: binary16 seed and two binary16 Newton steps.
 inline float16x8_t rcp8(float16x8_t x) {
-  // Keep both the seed and its reciprocal normal, even on cores flushing
-  // half-precision subnormals. 1 / 2^-14 = 16384 is well below 65504.
-  x = vmaxnmq_f16(x, vdupq_n_f16(0x1p-14f));
   int16x8_t i = vsubq_s16(vdupq_n_s16(0x7784), vreinterpretq_s16_f16(x));
   float16x8_t y = vreinterpretq_f16_s16(i);
   y = vmulq_f16(y, vfmsq_f16(vdupq_n_f16(2.0f), x, y));  // y * (2 - x y)
@@ -56,7 +53,6 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
   GeometryStats stats{};
   stats.vectors = Antialias ? kPixels / 2 : kPixels / 8;
   const Plane* pl = g_planes;
-  const Half nx = pl[1].nx, ny = pl[1].ny, nz = pl[1].nz;
   const float16x8_t one = vdupq_n_f16(1.0f), zero = vdupq_n_f16(0.0f);
   const float16x8_t two = vdupq_n_f16(2.0f);
 
@@ -67,10 +63,8 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
   const float rot_c = cosf(angle), rot_s = sinf(angle);
   const bool animate = g_settings.animation;
 
-  // Normalized mirrors: |hdot| <= w * sqrt(cosh(edge_width)-1).
-  // The sinh identity avoids scalar cancellation; the linear vector test
-  // avoids squaring tiny w values or large reflected coordinates in f16.
-  const float edge_threshold = 1.41421356237f * sinhf(g_settings.edge_width * 0.5f);
+  // Edge test: acosh(1 + hdot^2 / hdot(n,n)) <= w  <=>  hdot^2 / hdot(n,n) <= cosh(w) - 1.
+  const float edge_threshold = coshf(g_settings.edge_width) - 1.0f;
   // Texture mapping of the shader for a square texture: zoom * 4 * (-latest + 0.5) + (0.6, 0.5), wrapped.
   const float tex_scale = g_settings.zoom * 4.0f;
   const float16x8_t tex_off_x = vdupq_n_f16(tex_scale * 0.5f + 0.6f);
@@ -157,32 +151,20 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
     uint32_t parity = 0;
     for (int round = 0; round < g_settings.iterations; ++round) {
       ++stats.rounds;
-      // Homogeneous power-of-two rescaling preserves reflection signs and
-      // final ratios. Guard every round against growth caused by f16 drift
-      // near the disk boundary. With these presets |normal component| < 2,
-      // coordinates <=32 keep every multiply/add far below f16's 65504 limit.
-      auto magnitude = vmaxnmq_f16(vmaxnmq_f16(vabsq_f16(hx), vabsq_f16(hy)), vabsq_f16(hz));
-      auto large = vcmpgtq_n_f16(magnitude, 32.0f);
-      if (large) {
-        auto scale = vpselq_f16(vdupq_n_f16(0.03125f), one, large);
-        hx = vmulq_f16(hx, scale);
-        hy = vmulq_f16(hy, scale);
-        hz = vmulq_f16(hz, scale);
-        w = vmulq_f16(w, scale);
-      }
       // The first normal is (sinh(a), 0, 0): its reflection is x=abs(x).
       uint32_t moved = predicate_bits(vcmpltq_n_f16(hx, 0.0f));
       parity ^= moved;
       hx = vabsq_f16(hx);
       {
-        float16x8_t d = vfmsq_n_f16(vfmaq_n_f16(vmulq_n_f16(hx, nx), hy, ny), hz, nz);
+        constexpr int i = 1;
+        float16x8_t d = vfmsq_n_f16(vfmaq_n_f16(vmulq_n_f16(hx, pl[i].nx), hy, pl[i].ny), hz, pl[i].nz);
         uint32_t neg = predicate_bits(vcmpltq_n_f16(d, 0.0f));
         moved |= neg;
         parity ^= neg;
-        float16x8_t t = vmulq_n_f16(vminnmq_f16(d, zero), 2.0f);
-        hx = vfmsq_n_f16(hx, t, nx);
-        hy = vfmsq_n_f16(hy, t, ny);
-        hz = vfmsq_n_f16(hz, t, nz);
+        float16x8_t t = vmulq_n_f16(vminnmq_f16(d, zero), pl[i].k);  // 2 min(d, 0) / hdot(n, n)
+        hx = vfmsq_n_f16(hx, t, pl[i].nx);
+        hy = vfmsq_n_f16(hy, t, pl[i].ny);
+        hz = vfmsq_n_f16(hz, t, pl[i].nz);
       }
       // All presets have q=4: the third normal is proportional to (-1,1,0).
       // Reflecting when y<x is exactly a swap, without a general dot product.
@@ -196,24 +178,21 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
       if (round + 1 == g_settings.iterations) ++stats.capped_vectors;
     }
 
-    // Linear distance to the nearest normalized mirror.
-    float16x8_t best = vabsq_f16(hx);
+    // Distance to the nearest mirror, as hdot^2 / hdot(n, n), min over the three.
+    float16x8_t best = vmulq_f16(hx, hx);
     {
-      float16x8_t d = vfmsq_n_f16(vfmaq_n_f16(vmulq_n_f16(hx, nx), hy, ny), hz, nz);
-      best = vminnmq_f16(best, vabsq_f16(d));
+      constexpr int i = 1;
+      float16x8_t d = vfmsq_n_f16(vfmaq_n_f16(vmulq_n_f16(hx, pl[i].nx), hy, pl[i].ny), hz, pl[i].nz);
+      best = vminnmq_f16(best, vmulq_n_f16(vmulq_f16(d, d), pl[i].half_k));
     }
     float16x8_t diagonal = vsubq_f16(hy, hx);
-    best = vminnmq_f16(best, vmulq_n_f16(vabsq_f16(diagonal), 0.70710678118f));
-    mve_pred16_t on_edge = vcmpleq_f16(best, vmulq_n_f16(w, edge_threshold));
+    best = vminnmq_f16(best, vmulq_n_f16(vmulq_f16(diagonal, diagonal), 0.5f));
+    mve_pred16_t on_edge = vcmpleq_f16(best, vmulq_n_f16(vmulq_f16(w, w), edge_threshold));
 
     uint16x8_t offset;
     if constexpr (Textured) {
       // Back to the disk and into texture space: texel index = v * T + u.
-      // Valid hyperboloid points satisfy hz+w >= max(|hx|,|hy|).
-      // Enforce that bound after rounding so a collapsed boundary point cannot
-      // produce an infinite reciprocal/product or an out-of-range gather.
-      auto denominator = vmaxnmq_f16(vaddq_f16(w, hz), vmaxnmq_f16(vabsq_f16(hx), vabsq_f16(hy)));
-      float16x8_t inv_z = rcp8(denominator);
+      float16x8_t inv_z = rcp8(vaddq_f16(w, hz));
       float16x8_t lx = vmulq_f16(hx, inv_z), ly = vmulq_f16(hy, inv_z);
       float16x8_t tu = vfmsq_n_f16(tex_off_x, lx, tex_scale);  // zoom*4*(-lx) + offset
       float16x8_t tv = vfmsq_n_f16(tex_off_y, ly, tex_scale);

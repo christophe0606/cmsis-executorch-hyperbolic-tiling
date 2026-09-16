@@ -152,7 +152,8 @@ before loading so the generated load configuration uses the intended images.
 On the `f16` branch, both cores render with eight-lane Helium binary16 vectors
 and binary16 mapping tables. Scalar setup retains f32/f64 precision; Ethos
 stays on HP unchanged. Load both images together because the shared-state
-format has changed. See the [f16 range protections and startup checks](board/DevKit-E8/README.md#parallel-helium-rendering).
+format has changed. The geometry formulas follow the f32 renderer, without
+additional f16 scaling or bounds. See the [f16 kernel and startup checks](board/DevKit-E8/README.md#parallel-helium-rendering).
 Visual quality, especially fine boundary details and high texture zoom, still
 needs assessment on the display.
 

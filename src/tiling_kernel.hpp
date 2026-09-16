@@ -9,8 +9,8 @@ constexpr int kWidth = 240, kHeight = 16, kPixels = kWidth * kHeight;
 constexpr int kFrameWidth = 480, kFrameHeight = 800;
 constexpr int kTextureSize = 128, kTexels = kTextureSize * kTextureSize;
 
-// Normalize in scalar double precision before the vector kernel rounds to f16.
-struct Plane { float nx, ny, nz; };
+// Keep the f32 renderer's plane coefficients; vector operations round to f16.
+struct Plane { float nx, ny, nz, k, half_k; };
 using Half = __fp16;
 static_assert(sizeof(Half) == 2, "binary16 mapping tables");
 struct GeometryStats {

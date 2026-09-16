@@ -174,9 +174,9 @@ void compute_planes(int symmetry, tiling::Plane* planes) {
   Vec3 n[3];
   compute_triangle(pqr[0], pqr[1], pqr[2], n[0], n[1], n[2]);
   for (int i = 0; i < 3; ++i) {
-    const double inv_norm = 1.0 / sqrt(hdot(n[i], n[i]));
-    planes[i] = {static_cast<float>(n[i].x * inv_norm),
-                   static_cast<float>(n[i].y * inv_norm), static_cast<float>(n[i].z * inv_norm)};
+    const double nn = hdot(n[i], n[i]);
+    planes[i] = {static_cast<float>(n[i].x), static_cast<float>(n[i].y), static_cast<float>(n[i].z),
+                 static_cast<float>(2.0 / nn), static_cast<float>(1.0 / nn)};
   }
 }
 

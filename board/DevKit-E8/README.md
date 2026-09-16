@@ -86,19 +86,17 @@ renders eight pixels without AA, or the four samples of two pixels with AA.
 Mapping tables are binary16; plane construction and scalar animation/setup
 remain f32/f64. Ethos and its quantized model stay on HP unchanged.
 
-To control binary16 range, mirror normals are normalized before conversion,
-homogeneous reflection coordinates are rescaled together when they grow,
-and edge distances use a linear test instead of squaring values. Reciprocals
-have a minimum-normal denominator, and texture projection bounds its ratios.
-Fine boundary detail and high texture zoom can still lose precision; visual
-acceptance is required, rather than equality with the former f32 renderer.
-The shared protocol is now version 2: load both new images together.
+The kernel follows the f32 renderer's formulas and operation order: original
+mirror coefficients, homogeneous reflections, squared edge distances and
+disk/texture projection. It adds no f16 coordinate rescaling, denominator
+clamps or projection bounds. Reciprocals use a binary16 seed and the same two
+Newton steps. The wider vectors retain eight pixels, or two complete 2x2 AA
+grids, per batch. Fine boundary detail and animation smoothness need checking
+on the display with binary16 rounding.
+The shared protocol is now version 3: load both new images together.
 
-The f16 Debug and Release images build for both cores with AC6 6.24, and
-disassembly confirms native f16 vector arithmetic. Hardware validation and
-timings are pending: the CMSIS extension reported no ready debug session
-after repeated load/debug requests. The checks below are implemented but
-have not yet been observed passing on the f16 firmware.
+Hardware timings and visual acceptance of the revised f16 kernel are pending.
+The startup checks below compare the two cores, not f16 against f32.
 
 At startup, 144 strip comparisons check HP/HE pixels and reflection statistics
 across all three symmetries, full/half, AA on/off, texture on/off and disk/plane
