@@ -32,8 +32,10 @@ The A/B convention remains the same as the main-branch Helium renderer.
 MCP uses `antialiasing(mode="none"|"partial"|"full")`. The previous
 `on=true/false` argument remains accepted as a compatibility alias for full/none;
 console `aa on/off` also remains accepted. Status always reports the mode name.
-After updating firmware, restart the UART bridge and reconnect MCP clients to
-refresh their cached tool schema.
+When the COM connection closes and reopens after a firmware update, the UART
+bridge rediscovers tool schemas and notifies connected MCP clients to refresh
+their tool list. If the update leaves the COM connection healthy, restart the
+bridge and reconnect clients to refresh the schemas.
 
 Partial mode estimates the projected triangle area using the hyperbolic area
 `A = pi * (1 - 1/p - 1/q - 1/r)` and the projection's local metric. The cutoff

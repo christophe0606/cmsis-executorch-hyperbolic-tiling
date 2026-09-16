@@ -41,11 +41,11 @@ inline const char* texture_mode_name(TextureMode mode) {
 bool parse_texture_mode(const char* name, TextureMode& out);
 
 struct Settings {
-  int symmetry = 0;        // 0: (2,4,5), 1: (2,4,7), 2: (4,4,4) triangle group
+  int symmetry = 1;        // 0: (2,4,5), 1: (2,4,7), 2: (4,4,4) triangle group
   int geometry = 0;        // 0: disk, 1: plane (strip model)
   bool half = false;
-  Antialiasing aa = Antialiasing::Partial;
-  TextureMode texture = TextureMode::On;
+  Antialiasing aa = Antialiasing::None;
+  TextureMode texture = TextureMode::Video;
   bool video_tint = true;  // Blend live video with tile A/B colours.
   int iterations = 12;
   bool animation = true;   // Moebius drift

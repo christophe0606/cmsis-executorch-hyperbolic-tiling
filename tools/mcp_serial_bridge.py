@@ -11,7 +11,9 @@ Check the running server with --smoke-test (does not open the serial port).
 
 import argparse
 from contextlib import asynccontextmanager
+from itertools import count
 import json
+import logging
 import queue
 import sys
 import threading
@@ -19,6 +21,7 @@ import time
 
 MAX_REQUEST_BYTES = 4095  # excludes newline; matches firmware line[4096]
 MAX_RESPONSE_BYTES = 65536
+logger = logging.getLogger(__name__)
 
 
 class JsonLines:
@@ -80,6 +83,8 @@ class SerialRpc:
         lines = JsonLines()
         try:
             while not self.stopped.is_set():
+                if not getattr(self.port, "is_open", True):
+                    raise RuntimeError("Serial port is closed")
                 chunk = self.port.read(max(1, min(self.port.in_waiting, 4096)))
                 for line in lines.feed(chunk):
                     response = parse_response(line)
@@ -129,22 +134,21 @@ class BoardGateway:
     cannot release it while the serial exchange is still running.
     """
 
-    def __init__(self, rpc):
+    def __init__(self, rpc, request_ids=None):
         self.rpc = rpc
         self.lock = threading.Lock()
-        self.next_id = 1
+        self.request_ids = request_ids if request_ids is not None else count(1)
         self.failure = None
 
     def request(self, method, params=None, *, notification=False):
         with self.lock:
             if self.failure is not None:
-                raise RuntimeError(f"UART unavailable: {self.failure}. Restart the bridge and read status before retrying a change.")
+                raise RuntimeError(f"UART unavailable: {self.failure}. Wait for reconnection and read status before retrying a change.")
             message = {"jsonrpc": "2.0", "method": method}
             if params is not None:
                 message["params"] = params
             if not notification:
-                message["id"] = self.next_id
-                self.next_id += 1
+                message["id"] = next(self.request_ids)
             # Reject invalid/oversized requests before touching the UART. Such
             # requests must not poison an otherwise healthy shared connection.
             encode_request(message)
@@ -152,7 +156,7 @@ class BoardGateway:
                 response = self.rpc.exchange(message)
             except Exception as exc:
                 self.failure = str(exc)
-                raise RuntimeError(f"UART exchange failed: {exc}. Outcome may be unknown; no replay. Restart the bridge and read status before retrying a change.") from exc
+                raise RuntimeError(f"UART exchange failed: {exc}. Outcome may be unknown; no replay. Wait for reconnection and read status before retrying a change.") from exc
             if response is None:
                 return None
             if "error" in response:
@@ -160,9 +164,14 @@ class BoardGateway:
                 raise BoardRpcError(f"Board error {error['code']}: {error['message']}")
             return response["result"]
 
-    def close(self):
+    def needs_reconnect(self):
         with self.lock:
-            self.failure = self.failure or "bridge stopped"
+            return (self.failure is not None or self.rpc.reader_error is not None
+                    or not getattr(self.rpc.port, "is_open", True))
+
+    def close(self, reason="bridge stopped"):
+        with self.lock:
+            self.failure = self.failure or str(self.rpc.reader_error or reason)
             self.rpc.close()
 
 
@@ -183,17 +192,50 @@ def open_serial_rpc(port_name, baud, timeout):
         raise
 
 
-def create_http_app(port_name, baud=115200, timeout=15.0, *, rpc_factory=None):
+def create_http_app(port_name, baud=115200, timeout=15.0, *, rpc_factory=None,
+                    reconnect_interval=1.0):
     """Create an SDK MCP server; UART ownership follows the ASGI lifespan."""
     import anyio
     from mcp import types
-    from mcp.server.lowlevel import Server
+    from mcp.server.lowlevel import NotificationOptions, Server
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from mcp.server.transport_security import TransportSecuritySettings
     from starlette.applications import Starlette
     from starlette.routing import Route
 
-    server = Server("hyperbolic-uart-bridge", version="1.0.0",
+    if reconnect_interval <= 0:
+        raise ValueError("Reconnect interval must be positive")
+
+    sessions = set()
+
+    @asynccontextmanager
+    async def session_lifespan(server):
+        context = {"session": None}
+        try:
+            yield context
+        finally:
+            sessions.discard(context["session"])
+
+    class ToolUpdateServer(Server):
+        def create_initialization_options(self, notification_options=None,
+                                          experimental_capabilities=None):
+            return super().create_initialization_options(
+                notification_options or NotificationOptions(tools_changed=True),
+                experimental_capabilities)
+
+        # The pinned SDK has no public initialized-session hook. Track sessions
+        # here, and remove them through its public per-session lifespan hook.
+        async def _handle_message(self, message, session, lifespan_context,
+                                  raise_exceptions=False):
+            if (isinstance(message, types.ClientNotification)
+                    and isinstance(message.root, types.InitializedNotification)):
+                lifespan_context["session"] = session
+                sessions.add(session)
+            await super()._handle_message(message, session, lifespan_context,
+                                          raise_exceptions)
+
+    server = ToolUpdateServer("hyperbolic-uart-bridge", version="1.0.0",
+                    lifespan=session_lifespan,
                     instructions="All clients control the same board. Changes from other clients are immediately shared.")
     state = {}
 
@@ -208,31 +250,91 @@ def create_http_app(port_name, baud=115200, timeout=15.0, *, rpc_factory=None):
         return types.CallToolResult.model_validate(result)
 
     manager = StreamableHTTPSessionManager(
-        app=server, json_response=True, stateless=True,
+        app=server, json_response=True, stateless=False,
         security_settings=TransportSecuritySettings(
             allowed_hosts=["127.0.0.1:*", "localhost:*"],
             allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]))
 
-    @asynccontextmanager
-    async def lifespan(app):
-        factory = rpc_factory or (lambda: open_serial_rpc(port_name, baud, timeout))
-        gateway = BoardGateway(await anyio.to_thread.run_sync(factory))
-        state["gateway"] = gateway
+    factory = rpc_factory or (lambda: open_serial_rpc(port_name, baud, timeout))
+    request_ids = count(1)  # Also unique across failed reconnection attempts.
+
+    async def connect():
+        gateway = BoardGateway(await anyio.to_thread.run_sync(factory), request_ids)
         try:
             await anyio.to_thread.run_sync(gateway.request, "initialize", {
                 "protocolVersion": "2025-06-18", "capabilities": {},
                 "clientInfo": {"name": "hyperbolic-uart-bridge", "version": "1.0.0"}})
             await anyio.to_thread.run_sync(
                 lambda: gateway.request("notifications/initialized", notification=True))
-            result = await anyio.to_thread.run_sync(gateway.request, "tools/list")
-            state["tools"] = [types.Tool.model_validate(tool) for tool in result["tools"]]
-            async with manager.run():
-                yield
+            tools = []
+            cursors = set()
+            params = None
+            while True:
+                result = types.ListToolsResult.model_validate(
+                    await anyio.to_thread.run_sync(gateway.request, "tools/list", params))
+                tools.extend(result.tools)
+                if result.nextCursor is None:
+                    break
+                if result.nextCursor in cursors:
+                    raise ValueError("Board repeated a tools/list cursor")
+                cursors.add(result.nextCursor)
+                params = {"cursor": result.nextCursor}
+            # Order alone is not a tool change; schemas and descriptions are.
+            tools.sort(key=lambda tool: tool.name)
+            if len({tool.name for tool in tools}) != len(tools):
+                raise ValueError("Board returned duplicate tool names")
+            return gateway, tools
+        except BaseException:
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(gateway.close)
+            raise
+
+    async def notify_session(session):
+        try:
+            # A stalled client must not delay reconnection or other clients.
+            with anyio.fail_after(2):
+                await session.send_tool_list_changed()
+        except Exception:
+            logger.warning("Could not deliver tool-list update to MCP client", exc_info=True)
+
+    async def reconnect():
+        while True:
+            await anyio.sleep(reconnect_interval)
+            gateway = state["gateway"]
+            if not await anyio.to_thread.run_sync(gateway.needs_reconnect):
+                continue
+            # Close under the transaction lock before opening another handle.
+            # Requests already queued on this gateway fail; none are replayed.
+            await anyio.to_thread.run_sync(gateway.close, "UART disconnected; reconnecting")
+            try:
+                replacement, tools = await connect()
+            except Exception as exc:
+                logger.warning("UART reconnect/discovery failed: %s", exc)
+                continue
+            changed = tools != state["tools"]
+            state.update(gateway=replacement, tools=tools)
+            logger.info("UART reconnected; discovered %d tools (changed=%s)", len(tools), changed)
+            if changed:
+                async with anyio.create_task_group() as group:
+                    for session in tuple(sessions):
+                        group.start_soon(notify_session, session)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        gateway, tools = await connect()
+        state.update(gateway=gateway, tools=tools)
+        try:
+            async with manager.run(), anyio.create_task_group() as group:
+                group.start_soon(reconnect)
+                try:
+                    yield
+                finally:
+                    group.cancel_scope.cancel()
         finally:
             # Finish any active exchange and release the port even on shutdown
             # cancellation or a failed board handshake/tool discovery.
             with anyio.CancelScope(shield=True):
-                await anyio.to_thread.run_sync(gateway.close)
+                await anyio.to_thread.run_sync(state["gateway"].close)
 
     class McpEndpoint:
         async def __call__(self, scope, receive, send):
@@ -261,7 +363,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", help="COM5 on Windows, /dev/ttyACM0 on Linux; required to start the server")
     parser.add_argument("--baud", type=int, default=115200)
-    parser.add_argument("--timeout", type=float, default=15.0, help="Reply timeout in seconds; no automatic retries")
+    parser.add_argument("--timeout", type=float, default=15.0, help="Reply timeout in seconds; failed requests are never replayed")
     parser.add_argument("--http-port", type=int, default=8765, help="Local HTTP port (default: 8765)")
     parser.add_argument("--smoke-test", action="store_true", help="Check the running HTTP server; does not open UART")
     args = parser.parse_args()

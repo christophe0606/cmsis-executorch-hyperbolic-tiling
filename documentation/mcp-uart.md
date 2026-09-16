@@ -44,8 +44,16 @@ The C firmware remains responsible for tool definitions, argument validation,
 execution and UART JSON-RPC. The Python `mcp` package handles the HTTP MCP
 transport and client handshakes. At startup the bridge initializes its one
 board connection and discovers the tool schemas; it does not duplicate them
-in Python. HTTP tool calls are forwarded to the board. Tool discovery is
-cached until the bridge restarts, so restart it after changing firmware tools.
+in Python. HTTP tool calls are forwarded to the board. After the COM connection
+closes or fails, the bridge automatically reopens it and repeats initialization
+and complete tool discovery. It publishes the new list only after discovery
+succeeds. Changes to tool names, descriptions or schemas trigger the standard
+MCP `notifications/tools/list_changed` notification for connected clients;
+unchanged definitions (including a different list order) do not. The bridge
+advertises `capabilities.tools.listChanged: true` and uses stateful Streamable
+HTTP sessions with a GET/SSE channel for server notifications. Clients should
+refresh `tools/list` when notified. A firmware update that leaves the COM
+connection healthy does not trigger rediscovery; restart the bridge in that case.
 
 Plane geometry uses a strip rotated 90 degrees clockwise to fill the portrait
 display. Use `geometryType(geometry="plane")` to select it.
@@ -120,7 +128,8 @@ existing output-only console path; UART MCP is enabled on DevKit-E8.
 
    `uv` installs `mcp==1.26.0` and `pyserial==3.5` in its script environment
    on first use. The server binds only to `127.0.0.1`, port `8765`, and opens
-   COM5 once for its entire lifetime. Ctrl+C stops it and releases the UART.
+   one COM5 handle at a time, reopening after connection failures. Ctrl+C stops
+   it and releases the UART. Startup still requires a responding board.
    Do not run multiple server instances or use multiple ASGI workers/reload.
    Use `--http-port` to change the HTTP port, and update the Codex URL to match.
 5. From another terminal, test the running server:
@@ -184,11 +193,16 @@ Firmware discards damaged/overflowed input through the next newline rather
 than executing a truncated command. The bridge also bounds response lines.
 On timeout, disconnect or incomplete write the bridge marks the UART
 unavailable and rejects queued and subsequent calls without writing to it.
-It keeps ownership until shutdown and never retries a potentially completed
-operation. Correct the connection/run state in VS Code, restart the bridge,
-and read `status` before repeating a change. Cancelling an HTTP request does
+It closes the failed handle before trying to reopen the same configured port,
+checking once per second while idle. Reconnection attempts continue while the
+port is absent, busy, or the board handshake/discovery fails. During recovery,
+the last successfully discovered list remains available but tool calls fail.
+After a successful handshake and discovery, new calls use the new connection;
+queued calls on the failed connection are rejected and never replayed.
+Correct the connection/run state in VS Code if needed, allow the bridge to
+reconnect, and read `status` before repeating a change. Cancelling an HTTP request does
 not abort or replay an in-progress UART transaction; a submitted change may
-still complete. A new bridge sends an initial newline
+still complete. Each reopened connection sends an initial newline
 to terminate any partial input left by a disconnected client. It does not
 deliberately toggle DTR/RTS to reset the board.
 
@@ -212,7 +226,10 @@ parser recovery, repeated calls, partial serial reads, diagnostic filtering,
 request size limits and no replay on timeout. The HTTP tests use independent
 Python MCP SDK clients and a simulated serial device to check shared ownership,
 concurrent requests, ID isolation, client reconnection, cancellation, error
-recovery, startup cleanup and localhost Host/Origin checks. Hardware validation
+recovery, startup cleanup and localhost Host/Origin checks. Real localhost HTTP
+and SSE tests also cover automatic COM reconnection, failed rediscovery,
+paginated tool lists, notification delivery to multiple clients, unchanged lists,
+schema changes, tool removal and no replay after timeout. Hardware validation
 is required separately for IRQ reception and display coexistence.
 
 ## Validated on this board (2026-09-15)
