@@ -44,5 +44,8 @@ If a user-performed VS Code reflash restores the display, treat that image as th
 
 Incident reminder (2026-09-16): the user restored animation by reflashing from VS Code after an assistant-led flash/debug investigation left a black screen. The exact cause was not established. Configured Release paths and a responsive debug session had been checked, but the programmed image had not been independently verified. Do not repeat that inference.
 
+## For the demo
 
 Styling, color, geometry, symmetry are related to the hyperbolic app running on board and the hyperbolic MCP server shoudl be used to control the app look and feel.
+When I tell you to blink a color, it means alternating between this color and white or black quickly.
+If the color is dark, you use white and if it is light you use black for the blinking.

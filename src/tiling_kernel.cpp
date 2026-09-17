@@ -219,7 +219,7 @@ GeometryStats geometry_pass(const RenderState& state, uint16_t* g_accum, float t
       int32x4_t col = vaddq_n_s32(tile, 128);
       if constexpr (Textured) {
         int32x4_t tx = vldrbq_gather_offset_s32(g_texture + c * kTexels, offset);
-        // Untinted video keeps the camera RGB values. Edges, background and AA
+        // Untinted video keeps camera values in display order. Edges, background and AA
         // still apply below; procedural texture retains the original blend.
         if (g_settings.texture == TextureMode::Video && !g_settings.video_tint)
           col = vaddq_n_s32(tx, 128);

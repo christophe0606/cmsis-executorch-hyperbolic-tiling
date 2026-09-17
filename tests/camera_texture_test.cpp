@@ -12,9 +12,16 @@ int main() {
   output.front() = 42;
   output.back() = 43;
   camera_rgb565_to_texture(frame, 4, output.data() + 1, 2);
+#if defined(APP_DISPLAY_BGR) && APP_DISPLAY_BGR
+  // LCD byte order: a red camera pixel must populate the third plane.
+  const std::array<int8_t, 14> expected = {42, -128, -128, 127, 127,
+                                         -128, 127, -128, 127,
+                                         127, -128, -128, 127, 43};
+#else
   const std::array<int8_t, 14> expected = {42, 127, -128, -128, 127,
                                          -128, 127, -128, 127,
                                          -128, -128, 127, 127, 43};
+#endif
   if (output != expected) {
     std::fprintf(stderr, "RGB565 channel order, quantization, sampling or bounds failed\n");
     return 1;

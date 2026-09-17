@@ -92,7 +92,7 @@
 //   <i> Default: 0x02400000 (E8 pack default; verify on each board)
 // The previous board used 0x08000000. The current board exposes SRAM1 at
 // 0x02400000 and faults at 0x08000000, before main during zero initialization.
-#define APP_SRAM1_BASE         0x02400000
+#define APP_SRAM1_BASE         0x08000000
 //   <o> Region size [bytes] <0x0-0x00400000:8>
 //   <i> Defines size of SRAM1 memory region.
 //   <i> Default: 0x00400000
