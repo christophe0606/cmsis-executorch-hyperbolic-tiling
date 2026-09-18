@@ -40,11 +40,15 @@ inline const char* texture_mode_name(TextureMode mode) {
 }
 bool parse_texture_mode(const char* name, TextureMode& out);
 
+// For disk, the best looking setting is with half resolution
+// and full anti-aliasing so it is selected as default.
+// For full plane, it is a bit slow so aliasing should be disabled
+// by the user.
 struct Settings {
   int symmetry = 1;        // 0: (2,4,5), 1: (2,4,7), 2: (4,4,4) triangle group
   int geometry = 0;        // 0: disk, 1: plane (strip model)
-  bool half = false;
-  Antialiasing aa = Antialiasing::None;
+  bool half = true;
+  Antialiasing aa = Antialiasing::Full;
   TextureMode texture = TextureMode::Video;
   bool video_tint = true;  // Blend live video with tile A/B colours.
   int iterations = 12;
