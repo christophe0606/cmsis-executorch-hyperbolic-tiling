@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(hyperbolic_mcp_tests LANGUAGES C CXX)
 enable_testing()
+# Explicit source list: do not add the upstream project with its transports.
+set(CMCP_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/c_mcp")
+if(NOT EXISTS "${CMCP_SOURCE_DIR}/mcp.c")
+  message(FATAL_ERROR "c_mcp is missing. Run: git submodule update --init --recursive")
+endif()
 add_executable(camera_texture_test camera_texture_test.cpp)
 target_include_directories(camera_texture_test PRIVATE ../src)
 target_compile_features(camera_texture_test PRIVATE cxx_std_17)
@@ -20,8 +25,8 @@ target_compile_features(projection_test PRIVATE cxx_std_17)
 add_test(NAME projection COMMAND projection_test)
 add_executable(mcp_host mcp_host.cpp
   ../src/mcp_tools.cpp ../src/tiling_settings.cpp
-  ../third_party/c_mcp/mcp.c ../third_party/c_mcp/cJSON.c)
-target_include_directories(mcp_host PRIVATE ../src ../third_party/c_mcp)
+  ${CMCP_SOURCE_DIR}/mcp.c ${CMCP_SOURCE_DIR}/cJSON.c)
+target_include_directories(mcp_host PRIVATE ../src ${CMCP_SOURCE_DIR})
 target_compile_features(mcp_host PRIVATE cxx_std_17)
 target_compile_definitions(mcp_host PRIVATE CJSON_NESTING_LIMIT=16)
 if(MSVC)
@@ -31,8 +36,8 @@ endif()
 foreach(order RGB BGR)
   add_executable(mcp_color_${order} mcp_color_test.cpp
     ../src/mcp_tools.cpp ../src/tiling_settings.cpp
-    ../third_party/c_mcp/mcp.c ../third_party/c_mcp/cJSON.c)
-  target_include_directories(mcp_color_${order} PRIVATE ../src ../third_party/c_mcp)
+    ${CMCP_SOURCE_DIR}/mcp.c ${CMCP_SOURCE_DIR}/cJSON.c)
+  target_include_directories(mcp_color_${order} PRIVATE ../src ${CMCP_SOURCE_DIR})
   target_compile_features(mcp_color_${order} PRIVATE cxx_std_17)
   target_compile_definitions(mcp_color_${order} PRIVATE CJSON_NESTING_LIMIT=16)
   if(order STREQUAL "BGR")

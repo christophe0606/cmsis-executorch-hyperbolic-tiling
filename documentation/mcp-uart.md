@@ -1,7 +1,9 @@
 # MCP over UART4 (no RTOS)
 
-The board runs the original Linux demo's `c_mcp` dispatcher, adapted to bare
-metal. One persistent host bridge owns the UART and exposes a localhost
+The board uses the portable dispatcher and JSON parser from the `c_mcp` Git
+submodule. Its own UART input loop replaces upstream's POSIX input loop;
+upstream HTTP sources are not compiled. One persistent host bridge owns the
+UART and exposes a localhost
 Streamable HTTP MCP endpoint shared by all Codex chats:
 
 ```text

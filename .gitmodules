@@ -1,0 +1,3 @@
+[submodule "third_party/c_mcp"]
+	path = third_party/c_mcp
+	url = https://github.com/christophe0606/c_mcp.git

@@ -67,6 +67,8 @@ project:
         - file: ./src/mcp_tools.hpp
 
     - group: c_mcp
+      # Submodule: compile only the portable dispatcher and JSON parser.
+      # HTTP, POSIX input loops and demo sources are deliberately excluded.
       misc:
         - for-compiler: AC6
           C:

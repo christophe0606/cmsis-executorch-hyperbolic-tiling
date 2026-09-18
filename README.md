@@ -93,10 +93,23 @@ itself is in [documentation/example.md](documentation/example.md).
 ## 4. Project
 
 ```bash
-git clone https://github.com/Arm-Examples/CMSIS-Executorch.git
-cd CMSIS-Executorch
-git checkout hackathon
+git clone https://github.com/christophe0606/cmsis-executorch-hyperbolic-tiling.git
+cd cmsis-executorch-hyperbolic-tiling
+git submodule update --init --recursive
 ```
+
+**Initialize the submodules before building.** `third_party/c_mcp` comes from
+[christophe0606/c_mcp](https://github.com/christophe0606/c_mcp). You can also
+clone with `git clone --recurse-submodules`. After pulling changes or switching
+branches, run `git submodule update --init --recursive` again to select the
+recorded dependency revision.
+
+The firmware and host tests compile only `mcp.c` and `cJSON.c` from `c_mcp`.
+The board supplies its UART input loop and application tool handlers; upstream
+HTTP, POSIX input loops and demo sources are not built. HTTP access from Codex
+is provided separately by the Python UART bridge.
+See [c_mcp integration](documentation/c_mcp-submodule.md) for the pinned
+revision and transport details.
 
 Open the folder in VS Code and accept the tool activation and the pack
 installation (`PyTorch::ExecuTorch`, `AlifSemiconductor::Ensemble`, CMSIS).
