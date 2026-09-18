@@ -1,4 +1,4 @@
-# ExecuTorch on Ethos-U85: hackathon guide
+# ExecuTorch on Ethos-U85: project guide
 
 The current Helium renderer supports **full resolution, none/partial/full 2x2
 antialiasing and an adjustable reflection limit**. It defaults to full resolution, AA none and
@@ -20,10 +20,10 @@ the camera's original colours. Tinting defaults to on and affects only video.
 [UART MCP and Codex workspace configuration](documentation/mcp-uart.md), including
 the serial bridge and the `.codex/config.toml` example.
 
-The Arm ExecuTorch example, on its `hackathon` branch with the Alif board
-added. One CMSIS solution runs an ExecuTorch program on the Ethos-U85 of the **Alif Ensemble E8 DevKit** (Cortex-M55
+This project extends the Arm ExecuTorch example with Alif board support
+and a hyperbolic tiling demo. One CMSIS solution runs an ExecuTorch program on the Ethos-U85 of the **Alif Ensemble E8 DevKit** (Cortex-M55
 HP core) and on the **Corstone-320 FVP**; you switch between them by
-target-type. On this branch the program is the **hyperbolic tiling**: a port
+target-type. The program is the **hyperbolic tiling**: a port
 of christophe0606's GLSL shader demo, with the reflection geometry and the
 texture gather, compositing and antialiasing on the Cortex-M55 with Helium,
 half-resolution upscaling on the NPU, the DevKit's LCD showing it and the demo's MCP tools over UART

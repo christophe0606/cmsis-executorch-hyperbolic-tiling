@@ -59,7 +59,7 @@ struct Settings {
   Color background{0.0f, 0.0f, 0.0f};
   Color tile_a{1.0f, 0.0f, 0.0f};
   Color tile_b{0.0f, 0.0f, 1.0f};
-  EdgeThickness edge_thickness = EdgeThickness::Thin;
+  EdgeThickness edge_thickness = EdgeThickness::Thick;
 };
 
 bool parse_color(const char* name, Color& out);
