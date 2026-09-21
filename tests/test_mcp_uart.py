@@ -15,7 +15,7 @@ import time
 
 import serial
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "c_mcp" / "tools"))
 from mcp_serial_bridge import SerialRpc
 
 

@@ -125,11 +125,17 @@ existing output-only console path; UART MCP is enabled on DevKit-E8.
 4. Start the shared server **once**, from the workspace, and leave it running:
 
    ```powershell
-   uv run --script tools/mcp_serial_bridge.py --port COM5
+   uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --port COM5
    ```
 
-   `uv` installs `mcp==1.26.0` and `pyserial==3.5` in its script environment
-   on first use. The server binds only to `127.0.0.1`, port `8765`, and opens
+   `uv` installs the script's declared dependencies in its script environment
+   on first use. To also install them into the workspace environment for Pylance:
+
+   ```powershell
+   uv pip install --python .venv/Scripts/python.exe -r third_party/c_mcp/tools/requirements-mcp-serial-bridge.txt
+   ```
+
+   The server binds only to `127.0.0.1`, port `8765`, and opens
    one COM5 handle at a time, reopening after connection failures. Ctrl+C stops
    it and releases the UART. Startup still requires a responding board.
    Do not run multiple server instances or use multiple ASGI workers/reload.
@@ -137,7 +143,7 @@ existing output-only console path; UART MCP is enabled on DevKit-E8.
 5. From another terminal, test the running server:
 
    ```powershell
-   uv run --script tools/mcp_serial_bridge.py --smoke-test
+   uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --smoke-test
    ```
 
    This connects through HTTP, initializes an MCP client, lists the tools and

@@ -18,7 +18,22 @@ the camera's original colours. Tinting defaults to on and affects only video.
 
 **MCP over UART is available without an RTOS.** See
 [UART MCP and Codex workspace configuration](documentation/mcp-uart.md), including
-the serial bridge and the `.codex/config.toml` example.
+the serial bridge and the `.codex/config.toml` example. The bridge lives in the
+`c_mcp` submodule at
+[`third_party/c_mcp/tools/mcp_serial_bridge.py`](third_party/c_mcp/tools/mcp_serial_bridge.py).
+After initializing the submodule, start it once from this repository's root
+(adjust `COM5` to your board's port and close any serial monitor first):
+
+```powershell
+uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --port COM5
+```
+
+UV manages the script's dependencies automatically. To also install them into
+your existing project `.venv` for Pylance, use the adjacent requirements file:
+
+```powershell
+uv pip install --python .venv/Scripts/python.exe -r third_party/c_mcp/tools/requirements-mcp-serial-bridge.txt
+```
 
 This project extends the Arm ExecuTorch example with Alif board support
 and a hyperbolic tiling demo. One CMSIS solution runs an ExecuTorch program on the Ethos-U85 of the **Alif Ensemble E8 DevKit** (Cortex-M55
