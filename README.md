@@ -138,6 +138,38 @@ variant of the task uses uv and can download the Python version it asks
 for), edit `model/model.py`, and run the task **Create AI layer** before
 building.
 
+To inspect the unquantized ATen network with [Graphviz](https://graphviz.org):
+
+```bash
+python create_ai_layer.py cmsis-executorch.cbuild-mlops.yml --export-dot
+dot -Tsvg ai_layer/upscale.dot -o ai_layer/upscale.svg
+```
+
+This writes one `<method>.dot` beside `model.clayer` (currently
+`ai_layer/upscale.dot`). The diagram shows inputs, outputs, parameters/buffers,
+ATen operations, and labeled connections, with tensor shapes and dtypes.
+It skips quantization, ExecuTorch, and Vela, writes no intermediate `.pt2`,
+and leaves the firmware AI layer unchanged. `--export-aten` is an alias.
+
+Add `--compact` for operator-only operation labels, without node names,
+tensor metadata, module paths, or scalar arguments. Inputs/parameters keep
+their identifiers and outputs keep their positions; connections are unchanged:
+
+```bash
+python create_ai_layer.py cmsis-executorch.cbuild-mlops.yml --export-dot --compact
+```
+
+Existing PyTorch export files can also be converted independently:
+
+```bash
+python aten_to_dot.py model.pt2 -o model.dot --compact
+dot -Tsvg model.dot -o model.svg
+```
+
+The converter defaults to a `.dot` next to its input and supports `--rankdir TB`
+for a top-to-bottom layout (default: left-to-right). DOT generation requires
+PyTorch, but no Graphviz Python package; rendering requires Graphviz's `dot`.
+
 ## 5. Prepare the board once
 
 The Secure Enclave boots the M55 cores from a table of contents in MRAM; the

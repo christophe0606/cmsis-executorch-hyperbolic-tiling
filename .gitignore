@@ -7,6 +7,11 @@ __pycache__/
 # generated AI layer; the C array in ai_layer/model_pte.c is what gets built.
 *.pte
 
+# ATen inspection files and generated Graphviz diagrams.
+*.pt2
+ai_layer/*.dot
+ai_layer/*.svg
+
 # CMSIS-Toolbox build outputs. The per-context RTE/_<build>_<target>/ folders
 # are generated; the layers' RTE/ configuration files are sources.
 out/

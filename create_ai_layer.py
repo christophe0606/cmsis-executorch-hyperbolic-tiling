@@ -25,6 +25,11 @@ layer into the directory of the clayer named under `model.clayer`:
                           quantization scale / zero point of each tensor
     model.pte             the program itself, for inspection
 
+With --export-dot (alias --export-aten), write each method's unquantized ATen
+topology as <method>.dot in the same directory for Graphviz, then exit without
+generating the AI layer. This mode skips quantization, ExecuTorch and Vela.
+Add --compact to show only operator names on operation nodes.
+
 The methods take and return quantized tensors (int8 or int16): the float
 quantize / dequantize boundary that the Arm backend normally leaves on the CPU
 is removed with ExecuTorch's quantize-IO passes, and the parameters the CPU
@@ -61,7 +66,7 @@ def run_in_venv() -> None:
                 f"torch is not installed for {sys.executable}.\n"
                 "Create the venv first: ./setup_venv.sh (Linux/macOS) or setup_venv.bat (Windows)"
             )
-        sys.exit(subprocess.run([str(python), __file__, *sys.argv[1:]]).returncode)
+        sys.exit(subprocess.run([str(python), sys.argv[0], *sys.argv[1:]]).returncode)
 
 
 def pack_root() -> Path:
@@ -166,6 +171,21 @@ def quantize_method(spec, method):
         for sample in method.samples:
             prepared(*sample)  # calibrate
     return convert_pt2e(prepared)
+
+
+def export_dot(methods, output_dir: Path, *, compact: bool = False) -> None:
+    """Write ATen topology directly to DOT, without an intermediate .pt2 file."""
+    import torch
+    from aten_to_dot import program_to_dot
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for method in methods:
+        program = torch.export.export(method.module, method.example)
+        output_file = output_dir / f"{method.name}.dot"
+        output_file.write_text(
+            program_to_dot(program, method.name, compact=compact), encoding="utf-8"
+        )
+        print(f"[ai_layer] wrote {output_file} (ATen graph for Graphviz)")
 
 
 def export_program(spec) -> tuple[bytes, dict]:
@@ -362,16 +382,41 @@ def clayer(mlops: dict, runtime: list[str], operators: list[str], mlops_file: Pa
 
 
 def main() -> None:
-    if len(sys.argv) != 2 or not sys.argv[1].endswith(".cbuild-mlops.yml"):
-        sys.exit(f"usage: {Path(__file__).name} <solution>.cbuild-mlops.yml")
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mlops", type=Path)
+    parser.add_argument(
+        "--export-dot", "--export-aten",
+        dest="export_dot",
+        action="store_true",
+        help="only write unquantized <method>.dot graphs beside model.clayer for Graphviz; skip AI-layer generation",
+    )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="with --export-dot, show only operator names on operation nodes; omit tensor metadata and scalar arguments",
+    )
+    args = parser.parse_args()
+    if not args.mlops.name.endswith(".cbuild-mlops.yml"):
+        parser.error("mlops must be a <solution>.cbuild-mlops.yml file")
+    if args.compact and not args.export_dot:
+        parser.error("--compact requires --export-dot (or --export-aten)")
     run_in_venv()
 
     import yaml
 
-    mlops_file = Path(sys.argv[1]).resolve()
+    mlops_file = args.mlops.resolve()
     mlops = yaml.safe_load(mlops_file.read_text())["cbuild-mlops"]
     layer_file = mlops_file.parent / mlops["model"]["clayer"]
     layer_dir = layer_file.parent
+
+    if args.export_dot:
+        sys.path.insert(0, str(HERE / "model"))
+        from model import get_methods
+
+        export_dot(get_methods(), layer_dir, compact=args.compact)
+        return
 
     pte, io = export_program(compile_spec(mlops, mlops_file.parent))
     version = executorch_version(mlops_file)
