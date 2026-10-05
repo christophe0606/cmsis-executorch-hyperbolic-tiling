@@ -1,29 +1,29 @@
 # Helium resolution, antialiasing and reflection budget
 
-The firmware defaults to **480x800, AA none, at most 12 rounds**.
+The DevKit-E8 firmware defaults to **half resolution, AA full, at most 12 rounds**.
 All Möbius transforms, reflections, texture gathers, color composition and AA
 run on M55/Helium. Full resolution writes directly to RGB888. Half resolution
 uses the Ethos `upscale` method to enlarge the already antialiased colors.
 The generated AI layer is included: ordinary VS Code Build uses this renderer.
 
-UART4, 115200 baud:
+Controls use JSON-RPC MCP over UART4 at 115200 baud. The entries below name
+tools and their arguments; they are not raw terminal commands.
 
-```text
-scale full          # 480x800 geometry; native display resolution
-scale half          # 240x400 geometry, Ethos bilinear 2x enlargement
-aa full             # four samples at (+/-0.25, +/-0.25) geometry pixels everywhere
-aa partial          # 2x2 samples in rectangular boundary bands only
-aa none             # one center sample everywhere
-iterations 12       # maximum rounds, 1..40; three ordered mirrors per round
-iterations 40       # reference detail budget
-animation off       # reproducible geometry and texture for comparisons
-status
-reset               # restore full resolution, AA none, 12 rounds, animation on
-```
+| Tool | Arguments | Effect |
+| --- | --- | --- |
+| renderScale | scale="full" | 480x800 geometry at native display resolution |
+| renderScale | scale="half" | 240x400 geometry, Ethos bilinear 2x enlargement |
+| antialiasing | mode="full" | Four samples at (+/-0.25, +/-0.25) geometry pixels |
+| antialiasing | mode="partial" | Four samples only in rectangular boundary bands |
+| antialiasing | mode="none" | One centre sample |
+| reflectionLimit | iterations=12 or 40 | Maximum reflection rounds, allowed range 1..40 |
+| animationOn | on=false | Reproducible geometry and texture for comparisons |
+| status | No arguments | Read current settings |
+| reset | No arguments | Restore board defaults |
 
-The existing symmetry, geometry, colors, texture zoom, preview and probe commands
-remain available. Commands received during a frame are applied between frames.
-The A/B convention remains the same as the main-branch Helium renderer.
+Symmetry, geometry, colours and texture zoom also use MCP tools. Commands
+received during a frame are applied between frames. printf output remains
+diagnostic text. See [MCP connection and configuration](mcp-uart.md).
 
 ## How rendering works
 
@@ -31,7 +31,7 @@ The A/B convention remains the same as the main-branch Helium renderer.
 
 MCP uses `antialiasing(mode="none"|"partial"|"full")`. The previous
 `on=true/false` argument remains accepted as a compatibility alias for full/none;
-console `aa on/off` also remains accepted. Status always reports the mode name.
+Status always reports the mode name.
 When the COM connection closes and reopens after a firmware update, the UART
 bridge rediscovers tool schemas and notifies connected MCP clients to refresh
 their tool list. If the update leaves the COM connection healthy, restart the

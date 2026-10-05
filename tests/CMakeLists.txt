@@ -25,7 +25,7 @@ target_compile_features(projection_test PRIVATE cxx_std_17)
 add_test(NAME projection COMMAND projection_test)
 add_executable(mcp_host mcp_host.cpp
   ../src/mcp_tools.cpp ../src/tiling_settings.cpp
-  ${CMCP_SOURCE_DIR}/mcp.c ${CMCP_SOURCE_DIR}/cJSON.c)
+  ${CMCP_SOURCE_DIR}/mcp.c ${CMCP_SOURCE_DIR}/cJSON.c ${CMCP_SOURCE_DIR}/serial_transport.c)
 target_include_directories(mcp_host PRIVATE ../src ${CMCP_SOURCE_DIR})
 target_compile_features(mcp_host PRIVATE cxx_std_17)
 target_compile_definitions(mcp_host PRIVATE CJSON_NESTING_LIMIT=16)
@@ -36,7 +36,7 @@ endif()
 foreach(order RGB BGR)
   add_executable(mcp_color_${order} mcp_color_test.cpp
     ../src/mcp_tools.cpp ../src/tiling_settings.cpp
-    ${CMCP_SOURCE_DIR}/mcp.c ${CMCP_SOURCE_DIR}/cJSON.c)
+    ${CMCP_SOURCE_DIR}/mcp.c ${CMCP_SOURCE_DIR}/cJSON.c ${CMCP_SOURCE_DIR}/serial_transport.c)
   target_include_directories(mcp_color_${order} PRIVATE ../src ${CMCP_SOURCE_DIR})
   target_compile_features(mcp_color_${order} PRIVATE cxx_std_17)
   target_compile_definitions(mcp_color_${order} PRIVATE CJSON_NESTING_LIMIT=16)

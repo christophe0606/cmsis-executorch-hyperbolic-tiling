@@ -49,38 +49,32 @@ the fake-quantized graph), the selects are exact. The exporter also
 calibrates int8 activations with min/max observers instead of the Arm
 quantizer's histogram observer, which clipped the pinned [0, 1] ranges.
 Vela reports 11 NPU operators, 0 CPU operators, 2.6 MB of scratch. Tile,
-edge and background colours are method inputs, so the console commands
+edge and background colours are method inputs, so the MCP tools
 change them without a re-export.
 
-## MCP tools, console commands and the camera
+## MCP tools and the camera
 
-The original's MCP tools now run over UART using an embedded `c_mcp` port,
-interrupt reception and dispatch between frames; no RTOS is required. See
-[MCP connection and Codex configuration](mcp-uart.md). The same UART console
-(115200 on PRG USB) also accepts these commands from a terminal or the CMSIS
-Developer Assistant's serial tools:
+The renderer accepts JSON-RPC MCP commands over UART4 at 115200 baud on PRG
+USB. The application calls c_mcp's process_serial() between frames; the library
+owns framing, dispatch and response sending. Application printf output remains
+diagnostic text. See [MCP connection and configuration](mcp-uart.md).
 
-```text
-symmetry 0|1|2          (2,4,5), (2,4,7) or (4,4,4) triangle group, as the demo's presets
-geometry disk|plane     Poincaré disk or vertical strip filling the portrait panel
-animation on|off        the Möbius drift
-edge <colour>           edge colour: a name (black, white, red, ... navy) or r,g,b
-background <colour>
-tile a|b <colour>       the two tile colours (default red and blue, as the shader)
-texture on|off|video    procedural blend, solid tile colours, or live camera (default on)
-video-tint on|off       blend video with tile colours or show original camera colours (default on)
-zoom <f>                texture zoom
-reset | status | help
-```
+For example, these are complete newline-delimited UART requests:
 
-There is no camera on the board build, so a procedural 128x128 texture that
-drifts with time stands in for the video frames. The pack's CPI/CSI2
-camera drivers and vStream VideoIn are the path to a real one.
+~~~json
+{"jsonrpc":"2.0","id":1,"method":"tools/list"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"edgeColor","arguments":{"color":"green"}}}
+~~~
+
+Use tools/list to discover geometry, symmetry, animation, colours, texture and
+other controls. The DevKit-E8 camera supplies the video texture; textureMode
+selects off, procedural on, or video. Tool parameters and defaults are described
+in [the UART MCP documentation](mcp-uart.md).
 
 ## Files
 
 - `model/model.py`: the `tile` method and its calibration.
-- `src/app_main.cpp`: geometry pass, texture, console, timing, reference check.
+- `src/app_main.cpp`: geometry pass, texture, MCP processing, timing, reference check.
 - `create_ai_layer.py`: integer inputs (the gather index) pass through the
   quantized-IO export unquantized.
 - `board/DevKit-E8/Board-U85.clayer.yml`: temp pool sized for the tile graph.
@@ -97,8 +91,7 @@ pyocd load --cbuild-run out/cmsis-executorch+DevKit-E8.cbuild-run.yml   # see th
 Every 120 frames the console prints the geometry time with the average
 number of reflection rounds per vector, the NPU time with its frame copy,
 the frame rate and the worst deviation of the NPU frame from a float
-reference of the composition on a 12x20 pixel grid. `preview` prints the
-shown frame as ASCII, `probe x y` one pixel with its G-buffer entry.
+reference of the composition on a 12x20 pixel grid.
 
 ## Measured on the DevKit-E8
 

@@ -27,6 +27,14 @@
  *---------------------------------------------------------------------------*/
 
 /* Semihosting operation numbers (Arm semihosting specification). */
+#include "serial_transport.h"
+
+/* This demo target has output-only semihosting; do not block the render loop. */
+int mcp_serial_getchar(void)
+{
+  return MCP_SERIAL_NO_DATA;
+}
+
 #define SYS_WRITEC  0x03
 #define SYS_READC   0x07
 
@@ -45,6 +53,10 @@ static int semihosting_call (int op, void *param) {
 int stdio_init (void) {
   /* Semihosting needs no initialization. */
   return 0;
+}
+
+int mcp_serial_transport_init(void) {
+  return stdio_init();
 }
 
 /**

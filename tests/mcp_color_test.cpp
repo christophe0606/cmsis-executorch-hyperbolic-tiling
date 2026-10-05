@@ -4,8 +4,11 @@
 #include "mcp.h"
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace {
+std::string response;
+void capture(const char* json, int) { response = json ? json : ""; }
 bool same(Color a, Color b) {
   return a.r == b.r && a.g == b.g && a.b == b.b;
 }
@@ -17,8 +20,16 @@ bool call(const char* name, const char* color = nullptr, const char* tile = null
   cJSON* args = cJSON_AddObjectToObject(params, "arguments");
   if (color) cJSON_AddStringToObject(args, "color", color);
   if (tile) cJSON_AddStringToObject(args, "tile", tile);
-  cJSON* id = cJSON_CreateNumber(1);
-  cJSON* reply = handle_tools_call(id, params);
+  cJSON* request = cJSON_CreateObject();
+  cJSON_AddStringToObject(request, "jsonrpc", "2.0");
+  cJSON_AddNumberToObject(request, "id", 1);
+  cJSON_AddStringToObject(request, "method", "tools/call");
+  cJSON_AddItemToObject(request, "params", params);
+  char* line = cJSON_PrintUnformatted(request);
+  dispatch_with_sender(line, 0, capture);
+  cJSON_free(line);
+  cJSON_Delete(request);
+  cJSON* reply = cJSON_Parse(response.c_str());
   cJSON* result = cJSON_GetObjectItemCaseSensitive(reply, "result");
   bool success = result != nullptr;
   if (success && expected_status) {
@@ -27,8 +38,6 @@ bool call(const char* name, const char* color = nullptr, const char* tile = null
     success = cJSON_IsString(text) && std::strstr(text->valuestring, expected_status);
   }
   cJSON_Delete(reply);
-  cJSON_Delete(id);
-  cJSON_Delete(params);
   return success;
 }
 }

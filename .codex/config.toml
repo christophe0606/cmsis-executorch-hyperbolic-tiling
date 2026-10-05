@@ -1,3 +1,7 @@
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+sandbox_mode = "workspace-write"
+
 # Copy this table into <workspace>/.codex/config.toml.
 # Start the shared server once from this workspace:
 # uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --port COM5
@@ -7,3 +11,4 @@ url = "http://127.0.0.1:8765/mcp"
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 default_tools_approval_mode = "approve"
+

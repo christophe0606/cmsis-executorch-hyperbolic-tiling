@@ -1,8 +1,19 @@
 # MCP over UART4 (no RTOS)
 
 The board uses the portable dispatcher and JSON parser from the `c_mcp` Git
-submodule. Its own UART input loop replaces upstream's POSIX input loop;
-upstream HTTP sources are not compiled. One persistent host bridge owns the
+submodule. The board layer supplies strong initialization, RX and TX hooks for
+the existing stdio setup, nonblocking UART RX ring and synchronous CMSIS UART TX.
+The renderer calls init_serial() at startup and process_serial() before each
+frame. C_MCP_ENABLE_SERIAL_LOOP=1
+enables the library's bounded line buffer and recovery. The library dispatches
+JSON-RPC and sends its responses internally. The renderer does not read UART
+bytes or dispatch/send messages itself. Commands are JSON-RPC only; application
+printf diagnostics remain separate output. Compile serial_transport.c with the
+core to provide weak
+defaults using CMSIS __WEAK from cmsis_compiler.h. Desktop builds use ordinary
+stdio definitions. The C library supports serial transport; the host Python
+bridge supplies the shared HTTP endpoint.
+One persistent host bridge owns the
 UART and exposes a localhost
 Streamable HTTP MCP endpoint shared by all Codex chats:
 
@@ -24,23 +35,22 @@ The original six tools retain their names and arguments: `edgeColor(color)`,
 `videoTint(on)`, `edgeThickness(thickness)`, and `status()`.
 Run `tools/list` to see their schemas. Colours include both `gray` and `grey`,
 or comma-separated RGB values in [0,1]. Reset uses the board's defaults:
-full resolution, AA partial, 12 reflection rounds, animated disk, symmetry 0,
-texture on, thin edges, and red/blue tile colours.
+half resolution, AA full, 12 reflection rounds, animated disk, symmetry 1,
+texture video, thick edges, and red/blue tile colours.
 
 All colour names, numeric inputs and `status()` values use standard RGB:
 `red` is `1,0,0`, `green` is `0,1,0`, and `yellow` is `1,1,0`. Clients must not
 swap red and blue. The DevKit-E8 board layer sets `APP_DISPLAY_BGR=1`; firmware
 converts each edge, background and tile RGB triple to the display channel
 order when preparing renderer colours, for both full and half resolution.
-Settings, reset defaults and the UART console retain RGB values. Camera and
+Settings and reset defaults retain RGB values. Camera and
 procedural texture pixels are unchanged by this colour conversion.
 
 Use `edgeThickness(thickness="thin")`, `edgeThickness(thickness="thick")`, or
 `edgeThickness(thickness="very thick")` to choose edge width. These use
 hyperbolic distances 0.01 (the original width), 0.02, and 0.04 respectively,
 in both geometries and at either render resolution. Changes apply to the next
-frame. `status()` reports the thickness; `reset()` restores thin edges.
-The UART console equivalent is `edge-thickness thin|thick|very thick`.
+frame. `status()` reports the thickness; `reset()` restores thick edges.
 
 The C firmware remains responsible for tool definitions, argument validation,
 execution and UART JSON-RPC. The Python `mcp` package handles the HTTP MCP
@@ -54,16 +64,20 @@ MCP `notifications/tools/list_changed` notification for connected clients;
 unchanged definitions (including a different list order) do not. The bridge
 advertises `capabilities.tools.listChanged: true` and uses stateful Streamable
 HTTP sessions with a GET/SSE channel for server notifications. Clients should
-refresh `tools/list` when notified. A firmware update that leaves the COM
-connection healthy does not trigger rediscovery; restart the bridge in that case.
+refresh `tools/list` when notified. A board reboot or power cycle that disconnects
+the USB serial device triggers automatic reconnection and rediscovery; no bridge
+restart is needed. An MCU-only reset, such as a debugger reset after flashing,
+can leave the USB-to-UART adapter powered and COM5 open. If requests continue to
+succeed, the bridge cannot detect the reset; restart it if the new firmware
+changed its tools/resources or schemas. A failed or timed-out UART request also
+triggers automatic recovery, without replaying uncertain calls.
 
 Plane geometry uses a strip rotated 90 degrees clockwise to fill the portrait
 display. Use `geometryType(geometry="plane")` to select it.
 Use `textureOn(on=false)` for solid tile colours, then `tileColor(tile="a",
 color="red")` and `tileColor(tile="b",color="blue")` to choose the two colours.
 Edges, animation and antialiasing still work. `textureOn(on=true)` restores
-the texture blend without changing the selected colours. The equivalent
-UART console command is `texture on|off|video`; `status()` reports the current mode.
+the texture blend without changing the selected colours; `status()` reports the current mode.
 
 `textureMode(mode="video")` uses the DevKit-E8 MT9M114 MIPI camera as the texture.
 `mode="on"` selects the procedural texture and `mode="off"` selects solid colours.
@@ -73,7 +87,7 @@ geometry, antialiasing and both render scales apply to video as usual.
 
 Use `videoTint(on=false)` to disable tile-colour tinting and show the camera's
 original colours. `videoTint(on=true)` restores the default 50/50 blend with tile
-colours. The console equivalent is `video-tint off|on`. This setting affects only
+colours. This setting affects only
 video, preserves tile A/B colours, and is remembered across texture-mode changes.
 Edges, background, antialiasing and upscaling still apply. `status()` reports
 `video tint on|off`; `reset()` restores tinting on.
@@ -89,12 +103,30 @@ a camera also fall back to procedural texture. The board layer uses the camera
 initialization sequence from ModelNova's vStream VideoIn and the installed pack's
 MT9M114, CPI, CSI2, and I2C drivers; no RTOS or vStream wrapper is needed.
 
+## Read-only renderer resource
+
+With `C_MCP_ENABLE_VFS=1` (the default), `resources/list` exposes
+`hyperbolic://renderer/status` as `text/plain`. Reading it returns the current
+settings followed by `; frames N`, where N counts completed renderer frames.
+Successive reads provide runtime progress evidence alongside `status()`.
+Unknown URIs return JSON-RPC error -32002. The resource has no arguments,
+writes or subscriptions, and shares the tool request arena and UART lifetime.
+
+Set `C_MCP_ENABLE_VFS` to 0 in `third_party/c_mcp/c_mcp_config.h`, or define
+it consistently for all C/C++ sources, to remove firmware resource support.
+The bridge still serves the tools and does not advertise resources for that
+firmware. It discovers resource metadata together with tools, and publishes
+`notifications/resources/list_changed` after reconnect when the catalog changes.
+MCU-only resets may keep COM5 open and responsive; see the reset/reconnection
+behavior above for when a bridge restart is needed to refresh changed catalogs.
+
 ## Why no RTOS is needed
 
 Rendering, parsing and applying settings all run in the main loop. The CMSIS
 USART callback receives bytes into an 8 KiB ring during rendering and replies.
-At the start of each frame, the foreground consumes at most one complete line,
-dispatches it, and updates the geometry/maps/colours before drawing. There are
+At the start of each frame, process_serial() consumes at most one complete line
+inside c_mcp. The foreground then applies MCP geometry/maps/colour changes
+before drawing. There are
 no renderer/MCP threads, locks around settings, or JSON work in an interrupt.
 An accepted change affects the next frame; its reply acknowledges the settings
 update, not completion of the LCD scanout.
@@ -109,12 +141,13 @@ UART4 uses `RTE_UART4_BLOCKING_MODE_ENABLE=0`. The local `retarget_stdio.c`
 owns the receive callback and CMSIS-Compiler character hooks; the pack's
 separate stdin/stdout/stderr retarget components are removed from this board
 layer. Transmit waits for driver completion in the foreground, with interrupts
-enabled. Terminal commands still work, on the same port. The FVP retains its
+enabled. Incoming commands use JSON-RPC; printf diagnostics share the output
+and are filtered by the host bridge. The FVP retains its
 existing output-only console path; UART MCP is enabled on DevKit-E8.
 
 ## Build and connect
 
-1. Build `cmsis-executorch.Debug+DevKit-E8` and load/run the image through
+1. Build target-set `DevKit-E8@Release` (both M55_HP and M55_HE) and load/run through
    the CMSIS Developer Assistant in VS Code. Do not invoke pyOCD or GDB
    directly or install another copy of pyOCD.
 2. Set SW4 to **UART4** and use **PRG USB**, **115200 8N1**, with no hardware
@@ -240,7 +273,27 @@ paginated tool lists, notification delivery to multiple clients, unchanged lists
 schema changes, tool removal and no replay after timeout. Hardware validation
 is required separately for IRQ reception and display coexistence.
 
-## Validated on this board (2026-09-15)
+## Current c_mcp validation (2026-10-05)
+
+All four library tasks were validated separately on DevKit-E8 before moving
+to the next task. TASK4 was built and loaded in Release with VFS disabled
+(CMSIS jobs b-22/d-23), then enabled (b-24/d-25). Each configuration passed
+all 18 renderer callback checks, 100 status calls, invalid-input rejection,
+arena exhaustion/recovery and zero request heap growth. With VFS enabled,
+resource discovery/read, changed settings, 25 repeated reads and missing-URI
+error/recovery passed; completed frames advanced from 654 to 837. Startup
+allocation counts were 454 without resources and 480 with resources.
+
+Generated inputs selected both Release core images and symbols. CMSIS Load
+exited 0 for both loads; supported MCP readback matched 64-byte HP code and
+HE vector samples to the selected HEX files. These are partial byte checks.
+Native core tests passed 2/2 (enabled/disabled), renderer tests 6/6, Python
+renderer protocol tests 14/14 and standalone bridge tests 11/11. After flashing,
+the HTTP bridge still advertised its previous resource catalog while status
+requests succeeded. Restarting it discovered the newly enabled resource.
+The exact USB disconnection/reset behavior was not independently established.
+
+## Earlier UART validation (2026-09-15)
 
 The hardware results below predate the shared HTTP adapter. The HTTP adapter
 passed seven hardware-free gateway/SDK integration tests, and the four serial

@@ -50,7 +50,7 @@ class FirmwareProtocol(unittest.TestCase):
         self.assertEqual([x["id"] for x in result], ["init", 2, 3])
         self.assertEqual(result[0]["result"]["protocolVersion"], "2025-06-18")
         tools = {t["name"]: t for t in result[1]["result"]["tools"]}
-        self.assertEqual(len(tools), 16)
+        self.assertEqual(len(tools), 17)
         self.assertEqual(tools["videoTint"]["inputSchema"]["properties"]["on"]["type"], "boolean")
         self.assertEqual(tools["videoTint"]["inputSchema"]["required"], ["on"])
         self.assertEqual(tools["textureMode"]["inputSchema"]["properties"]["mode"]["type"], "string")
@@ -80,10 +80,10 @@ class FirmwareProtocol(unittest.TestCase):
                      "animation off", "zoom 2.5", "texture off", "edge 0.5,0.5,0.5", "tile b 0,1,0"):
             self.assertIn(text, status)
         reset = result[-1]["result"]["content"][0]["text"]
-        self.assertIn("scale full, AA partial, iterations 12", reset)
-        self.assertIn("edge thickness thin", reset)
-        self.assertIn("texture on", reset)
-        self.assertIn("symmetry 0, geometry disk, animation on, zoom 1", reset)
+        self.assertIn("scale half, AA full, iterations 12", reset)
+        self.assertIn("edge thickness thick", reset)
+        self.assertIn("texture video", reset)
+        self.assertIn("symmetry 1, geometry disk, animation on, zoom 0.5", reset)
 
     def test_invalid_arguments_do_not_mutate(self):
         invalid = [
@@ -115,11 +115,11 @@ class FirmwareProtocol(unittest.TestCase):
                          call("reset"), call("status")])
         result = self.exchange(messages)
         original = result[0]["result"]["content"][0]["text"]
-        self.assertIn("edge thickness thin", original)
+        self.assertIn("edge thickness thick", original)
         for index, thickness in enumerate(("thick", "very thick", "thin", "very thick")):
             self.assertIn("result", result[1 + index * 2])
             self.assertEqual(result[2 + index * 2]["result"]["content"][0]["text"],
-                             original.replace("edge thickness thin", "edge thickness " + thickness))
+                             original.replace("edge thickness thick", "edge thickness " + thickness))
         self.assertEqual(result[9]["error"]["code"], -32602)
         self.assertEqual(result[8]["result"], result[10]["result"])
         self.assertEqual(result[-1]["result"], result[0]["result"])
@@ -131,7 +131,7 @@ class FirmwareProtocol(unittest.TestCase):
             self.assertIn("result", result[1])
             before = result[0]["result"]["content"][0]["text"]
             after = result[2]["result"]["content"][0]["text"]
-            self.assertEqual(before.replace("AA partial", "AA " + mode), after)
+            self.assertEqual(before.replace("AA full", "AA " + mode), after)
 
     def test_texture_toggle_preserves_tile_colours(self):
         result = self.exchange([
@@ -163,7 +163,7 @@ class FirmwareProtocol(unittest.TestCase):
             self.assertIn("texture video", before)
             self.assertIn("tile a 1,1,0", before)
             self.assertEqual(before.replace("texture video", "texture " + mode), after)
-            self.assertIn("texture on", result[6]["result"]["content"][0]["text"])
+            self.assertIn("texture video", result[6]["result"]["content"][0]["text"])
         invalid = [call("textureMode", args) for args in
                    ({}, {"mode": "camera"}, {"mode": True}, {"mode": 2}, {"mode": None})]
         result = self.exchange([call("textureMode", {"mode": "video"}), call("status"),
@@ -200,6 +200,13 @@ class FirmwareProtocol(unittest.TestCase):
                          [-32700, -32600, -32600, -32600, -32600, -32700, -32601])
         self.assertIsNone(result[0]["id"])
         self.assertEqual(result[-1], {"jsonrpc": "2.0", "id": "good", "result": {}})
+
+    def test_legacy_text_commands_are_rejected_without_mutating_settings(self):
+        legacy = ["edge red", "reset", "status", "help", "preview", "probe 0 0"]
+        result = self.exchange([call("edgeColor", {"color": "green"}), call("status"),
+                                *legacy, call("status")])
+        self.assertEqual(result[1]["result"], result[-1]["result"])
+        self.assertTrue(all(item["error"]["code"] == -32700 for item in result[2:-1]))
 
     def test_depth_limit_and_repeated_calls(self):
         nested = '{"a":' * 20 + '0' + '}' * 20

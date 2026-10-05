@@ -67,17 +67,21 @@ project:
         - file: ./src/mcp_tools.hpp
 
     - group: c_mcp
-      # Submodule: compile only the portable dispatcher and JSON parser.
-      # HTTP, POSIX input loops and demo sources are deliberately excluded.
+      # Portable dispatcher and serial loop; board layer supplies RX/TX hooks.
       misc:
         - for-compiler: AC6
           C:
             - -ffp-mode=full
       define:
         - CJSON_NESTING_LIMIT: 16
+        - C_MCP_ENABLE_SERIAL_LOOP: 1
       files:
         - file: ./third_party/c_mcp/mcp.c
         - file: ./third_party/c_mcp/mcp.h
+        - file: ./third_party/c_mcp/c_mcp_config.h
+        - file: ./third_party/c_mcp/mcp_index.h
+        - file: ./third_party/c_mcp/serial_transport.c
+        - file: ./third_party/c_mcp/serial_transport.h
         - file: ./third_party/c_mcp/cJSON.c
         - file: ./third_party/c_mcp/cJSON.h
 

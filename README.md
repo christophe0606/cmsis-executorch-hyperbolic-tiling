@@ -13,7 +13,7 @@ their colours with `tile a|b <colour>`. `texture on` restores texture blending.
 Use `texture video` (MCP: `textureMode(mode="video")`) for live MT9M114 camera
 texture on the DevKit-E8. `textureMode(mode="off"|"on"|"video")` selects all three
 modes; the existing boolean `textureOn` tool still selects off/on.
-Disable video tinting with `video-tint off` (MCP: `videoTint(on=false)`) to show
+Disable video tinting with `videoTint(on=false)` to show
 the camera's original colours. Tinting defaults to on and affects only video.
 
 **MCP over UART is available without an RTOS.** See
@@ -42,7 +42,7 @@ target-type. The program is the **hyperbolic tiling**: a port
 of christophe0606's GLSL shader demo, with the reflection geometry and the
 texture gather, compositing and antialiasing on the Cortex-M55 with Helium,
 half-resolution upscaling on the NPU, the DevKit's LCD showing it and the demo's MCP tools over UART
-alongside console commands; see [documentation/hyperbolic-tiling.md](documentation/hyperbolic-tiling.md).
+using JSON-RPC commands; see [documentation/hyperbolic-tiling.md](documentation/hyperbolic-tiling.md).
 The `npu-render` branch has the 3D-pipeline demo this builds on
 ([documentation/npu-render.md](documentation/npu-render.md)). The model is exported from PyTorch in three steps: the
 CMSIS-Toolbox describes the target, `create_ai_layer.py` turns that into the
@@ -119,10 +119,10 @@ clone with `git clone --recurse-submodules`. After pulling changes or switching
 branches, run `git submodule update --init --recursive` again to select the
 recorded dependency revision.
 
-The firmware and host tests compile only `mcp.c` and `cJSON.c` from `c_mcp`.
-The board supplies its UART input loop and application tool handlers; upstream
-HTTP, POSIX input loops and demo sources are not built. HTTP access from Codex
-is provided separately by the Python UART bridge.
+The firmware and host tests compile `mcp.c`, `cJSON.c` and `serial_transport.c`
+from `c_mcp`. The application uses the library's serial processing API and
+supplies tool handlers; the board layer supplies UART RX/TX overrides.
+HTTP access from Codex is provided separately by the Python UART bridge.
 See [c_mcp integration](documentation/c_mcp-submodule.md) for the pinned
 revision and transport details.
 
@@ -218,7 +218,7 @@ Choose the build mode in Manage Solution:
 
 Debug and Benchmark define `APP_FRAME_PERF_LOG`. They report the first frame
 and then roughly once per second of accumulated render time. Release compiles
-out these reports; startup messages, errors, console/MCP responses and
+out these reports; startup messages, errors, MCP responses and
 debugger-visible `g_tiling_metrics` remain available.
 
 ```sh

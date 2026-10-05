@@ -40,13 +40,13 @@
 #endif
 #include "mcp_tools.hpp"
 #include "mcp.h"
+#include "serial_transport.h"
 #ifdef APP_HAS_CAMERA
 #include "board_camera.h"
 #endif
 
 #ifdef APP_HAS_DISPLAY
 #include "board_display.h"
-#include "board_console.h"
 #endif
 
 #ifndef __ARM_FEATURE_MVE
@@ -283,7 +283,6 @@ void cycle_counter_init() {
 inline uint32_t cycles() { return DWT->CYCCNT; }
 inline float us(uint64_t c) { return static_cast<float>(c) * 1.0e6f / static_cast<float>(SystemCoreClock); }
 
-const uint8_t* g_last_frame = nullptr;  // the frame most recently presented
 uint32_t g_frame_target_free_after = 0;
 
 struct TensorBox {
@@ -369,178 +368,6 @@ bool validate_worker() {
 }
 #endif
 
-void print_pixel(const uint8_t* frame, int x, int y) {
-  x = std::min(std::max(x, 0), kFrameWidth - 1);
-  y = std::min(std::max(y, 0), kFrameHeight - 1);
-  const uint8_t* p = frame + (y * kFrameWidth + x) * 3;
-  printf("pixel (%d,%d): %u,%u,%u\n", x, y, p[0], p[1], p[2]);
-}
-
-void ascii_preview(const uint8_t* frame) {
-  static const char ramp[] = " .:-=+*#%@";
-  constexpr int cols = 48, rows = 40;
-  constexpr int cw = kFrameWidth / cols, ch = kFrameHeight / rows;
-  for (int r = 0; r < rows; ++r) {
-    char line[cols + 1];
-    for (int c = 0; c < cols; ++c) {
-      float lum = 0.0f;
-      for (int y = r * ch; y < (r + 1) * ch; ++y)
-        for (int x = c * cw; x < (c + 1) * cw; ++x) {
-          const uint8_t* px = frame + (static_cast<size_t>(y) * kFrameWidth + x) * 3;
-          lum += (0.30f * px[0] + 0.59f * px[1] + 0.11f * px[2]) / 255.0f;
-        }
-      line[c] = ramp[std::min(9, std::max(0, static_cast<int>(lum / (cw * ch) * 9.99f)))];
-    }
-    line[cols] = '\0';
-    printf("|%s|\n", line);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Console commands: the demo's MCP tools, over the UART.
-// ---------------------------------------------------------------------------
-#ifdef APP_HAS_DISPLAY
-// The interrupt handler owns UART RX; foreground only consumes its ring.
-int console_getchar_nonblocking() {
-  return board_console_getchar();
-}
-#else
-int console_getchar_nonblocking() { return -1; }
-#endif
-
-// Returns a bit mask: 1 = symmetry changed, 2 = geometry changed, 4 = colours changed.
-int handle_command(char* line) {
-  char* cmd = strtok(line, " \t");
-  if (!cmd) return 0;
-  char* arg = strtok(nullptr, strcmp(cmd, "edge-thickness") == 0 ? "\r\n" : " \t");
-  if (arg && strcmp(cmd, "edge-thickness") == 0) {
-    while (*arg == ' ' || *arg == '\t') ++arg;
-    size_t length = strlen(arg);
-    while (length && (arg[length - 1] == ' ' || arg[length - 1] == '\t')) arg[--length] = '\0';
-  }
-  if (strcmp(cmd, "help") == 0) {
-    printf("commands: scale full|half | aa none|partial|full | iterations 1..40 | symmetry 0|1|2 | geometry disk|plane | animation on|off | edge <color> | background <color> | "
-           "edge-thickness thin|thick|very thick | tile a|b <color> | texture on|off|video | video-tint on|off | zoom <f> | reset | status | preview | probe x y  (colours: names or r,g,b)\n");
-  } else if (strcmp(cmd, "edge-thickness") == 0) {
-    if (!arg || !parse_edge_thickness(arg, g_settings.edge_thickness)) {
-      printf("use thin|thick|very thick\n");
-      return 0;
-    }
-    printf("edge thickness %s\n", edge_thickness_name(g_settings.edge_thickness));
-  } else if (strcmp(cmd, "symmetry") == 0 && arg) {
-    g_settings.symmetry = std::min(std::max(atoi(arg), 0), 2);
-    printf("symmetry changed\n");
-    return 1;
-  } else if (strcmp(cmd, "scale") == 0 && arg) {
-    if (strcmp(arg, "half") && strcmp(arg, "full")) { printf("use full|half\n"); return 0; }
-    g_settings.half = strcmp(arg, "half") == 0;
-    printf("scale %s\n", arg);
-    return 2;
-  } else if (strcmp(cmd, "aa") == 0 && arg) {
-    if (!parse_antialiasing(arg, g_settings.aa)) { printf("use none|partial|full\n"); return 0; }
-    printf("AA %s\n", antialiasing_name(g_settings.aa));
-  } else if (strcmp(cmd, "texture") == 0 && arg) {
-    if (!parse_texture_mode(arg, g_settings.texture)) { printf("use on|off|video\n"); return 0; }
-    printf("texture %s\n", arg);
-  } else if (strcmp(cmd, "video-tint") == 0 && arg) {
-    if (strcmp(arg, "on") && strcmp(arg, "off")) { printf("use on|off\n"); return 0; }
-    g_settings.video_tint = strcmp(arg, "on") == 0;
-    printf("video tint %s\n", arg);
-  } else if (strcmp(cmd, "iterations") == 0 && arg) {
-    char* end;
-    long n = strtol(arg, &end, 10);
-    if (*end || n < 1 || n > 40) { printf("iterations must be 1..40\n"); return 0; }
-    g_settings.iterations = static_cast<int>(n);
-    printf("iterations %d\n", g_settings.iterations);
-  } else if (strcmp(cmd, "geometry") == 0 && arg) {
-    g_settings.geometry = strcmp(arg, "plane") == 0 ? 1 : 0;
-    printf("geometry changed\n");
-    return 2;
-  } else if (strcmp(cmd, "animation") == 0 && arg) {
-    g_settings.animation = strcmp(arg, "on") == 0 || strcmp(arg, "1") == 0;
-    printf("animation %s\n", g_settings.animation ? "started" : "stopped");
-  } else if ((strcmp(cmd, "edge") == 0 || strcmp(cmd, "background") == 0) && arg) {
-    Color c;
-    if (!parse_color(arg, c)) {
-      printf("unknown colour %s\n", arg);
-      return 0;
-    }
-    (strcmp(cmd, "edge") == 0 ? g_settings.edge : g_settings.background) = c;
-    printf("%s colour changed\n", cmd);
-    return 4;
-  } else if (strcmp(cmd, "tile") == 0 && arg) {
-    char* col = strtok(nullptr, " \t");
-    Color c;
-    if (!col || !parse_color(col, c)) {
-      printf("usage: tile a|b <color>\n");
-      return 0;
-    }
-    (arg[0] == 'b' ? g_settings.tile_b : g_settings.tile_a) = c;
-    printf("tile colour changed\n");
-    return 4;
-  } else if (strcmp(cmd, "zoom") == 0 && arg) {
-    g_settings.zoom = static_cast<float>(atof(arg));
-    g_settings.zoom_override = true;
-    printf("zoom changed\n");
-  } else if (strcmp(cmd, "reset") == 0) {
-    g_settings = Settings();
-    printf("settings reset\n");
-    return 7;
-  } else if (strcmp(cmd, "preview") == 0) {
-    if (g_last_frame) ascii_preview(g_last_frame);
-  } else if (strcmp(cmd, "probe") == 0 && arg) {
-    char* ys = strtok(nullptr, " \t");
-    if (g_last_frame && ys) print_pixel(g_last_frame, atoi(arg), atoi(ys));
-  } else if (strcmp(cmd, "status") == 0) {
-    printf("scale %s, AA %s, iterations %d\n", g_settings.half ? "half" : "full", antialiasing_name(g_settings.aa), g_settings.iterations);
-    printf("symmetry %d, geometry %s, animation %s, zoom %.2f\n", g_settings.symmetry,
-           g_settings.geometry ? "plane" : "disk", g_settings.animation ? "on" : "off", g_settings.zoom);
-    printf("texture %s\n", texture_mode_name(g_settings.texture));
-    printf("video tint %s\n", g_settings.video_tint ? "on" : "off");
-    printf("edge thickness %s\n", edge_thickness_name(g_settings.edge_thickness));
-  } else {
-    printf("unknown command; try help\n");
-  }
-  return 0;
-}
-
-int poll_console() {
-  static char line[4096];
-  static int len = 0;
-  static bool discard = false;
-  // Bound foreground work to one complete line per frame. UART RX continues
-  // throughout rendering and replies. Settings cannot change within a frame.
-  for (int budget = 0; budget < 8192; ++budget) {
-    int c = console_getchar_nonblocking();
-    if (c == -1) break;
-    if (c == -2) { len = 0; discard = true; continue; }
-    if (c == '\r' || c == '\n') {
-      if (discard) {
-        len = 0;
-        discard = false;
-        printf("input lost or too long; discarded through newline\n");
-        return 0;
-      }
-      if (len > 0) {
-        line[len] = '\0';
-        len = 0;
-        const char* first = line;
-        while (*first == ' ' || *first == '\t') ++first;
-        if (*first == '{' || *first == '[') {
-          dispatch(first, 0);
-          return mcp_take_changes();
-        }
-        return handle_command(line);
-      }
-    } else if (!discard && (c >= 32 || c == '\t') && len < static_cast<int>(sizeof(line)) - 1) {
-      line[len++] = static_cast<char>(c);
-    } else {
-      discard = true; // Never execute a truncated or corrupted command.
-    }
-  }
-  return 0;
-}
-
 }  // namespace
 
 // Let the NPU output populate its tensor; copy only the useful halo-free rows.
@@ -549,7 +376,8 @@ extern "C" void arm_ethos_io_memcpy(void* dst, const void* src, size_t size) {
 }
 
 extern "C" int app_main(void) {
-  mcp_tools_init(g_settings);
+  mcp_tools_init(g_settings, &g_tiling_metrics.frames);
+  if (init_serial() != 0) { printf("serial initialization failed\n"); return 1; }
   executorch::runtime::runtime_init();
   cycle_counter_init();
   printf("Helium tiling: full/half, 2x2 AA, adjustable reflection limit; Ethos half-scale upscale\n");
@@ -589,7 +417,7 @@ extern "C" int app_main(void) {
   int32_t ds = display_init();
   if (ds == 0) ds = display_start(g_framebuffer[1]);
   display_on = ds == 0;
-  printf("display %s (%ld); type help for controls\n", display_on ? "on" : "failed", static_cast<long>(ds));
+  printf("display %s (%ld)\n", display_on ? "on" : "failed", static_cast<long>(ds));
 #endif
   float animation_time = 0;
 #ifdef APP_FRAME_PERF_LOG
@@ -598,7 +426,10 @@ extern "C" int app_main(void) {
   for (int frame = 0; display_on || frame < 2; ++frame) {
     DCB->DEMCR |= DCB_DEMCR_TRCENA_Msk;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-    int changed = poll_console();
+    // Bound input work to one complete line before rendering a frame.
+    int serial_result = process_serial();
+    if (serial_result == 2) printf("input lost or too long; discarded through newline\n");
+    int changed = mcp_take_changes();
     if (changed & 1) apply_symmetry();
     if (changed & 3) build_maps();
     if (changed & 4) quantize_colors();
@@ -719,7 +550,6 @@ extern "C" int app_main(void) {
     g_tiling_metrics.tile_count = tile_count;
     g_tiling_metrics.he_wait_cycles = he_wait_cycles;
     g_tiling_metrics.frames = frame + 1;
-    g_last_frame = g_framebuffer[back];
 #ifdef APP_HAS_DISPLAY
     if (display_on) {
       SCB_CleanDCache_by_Addr(g_framebuffer[back], static_cast<int32_t>(kFrameBytes));
@@ -744,5 +574,6 @@ extern "C" int app_main(void) {
     if (g_settings.animation) animation_time += us(total_cycles) * 1.0e-6f;
   }
   printf("Test_result: PASS\n\x04");
+  end_serial();
   return 0;
 }

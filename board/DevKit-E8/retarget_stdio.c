@@ -25,6 +25,7 @@
 #include CMSIS_target_header
 #include CMSIS_device_header
 #include "board_console.h"
+#include "serial_transport.h"
 
 /* Compile-time configuration */
 #ifndef UART_BAUDRATE
@@ -95,6 +96,28 @@ int stdout_putchar(int ch)
 }
 
 int stderr_putchar(int ch) { return stdout_putchar(ch); }
+
+/* c_mcp's serial loop uses the board RX ring and synchronous foreground TX. */
+int mcp_serial_transport_init(void)
+{
+    /* Reuse main's initialized UART without reconfiguring libc stdout buffering. */
+    return stdio_init();
+}
+
+int mcp_serial_getchar(void)
+{
+    int ch = board_console_getchar();
+    return ch == -1 ? MCP_SERIAL_NO_DATA : ch == -2 ? MCP_SERIAL_INPUT_LOST : ch;
+}
+
+void mcp_serial_send(const char *json, int channel)
+{
+    (void)channel;
+    if (!json) return;
+    while (*json) stdout_putchar((unsigned char)*json++);
+    stdout_putchar('\n');
+}
+
 int stdin_getchar(void)
 {
     int ch;
