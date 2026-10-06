@@ -20,7 +20,7 @@ Streamable HTTP MCP endpoint shared by all Codex chats:
 ```text
 Codex chats <-> http://127.0.0.1:8765/mcp <-> one UART bridge
                                                     |
-                                         COM5, 115200 8N1
+                                         Serial port, 115200 8N1
                                                     |
                                            UART4 IRQ buffer
                                                     |
@@ -67,7 +67,7 @@ HTTP sessions with a GET/SSE channel for server notifications. Clients should
 refresh `tools/list` when notified. A board reboot or power cycle that disconnects
 the USB serial device triggers automatic reconnection and rediscovery; no bridge
 restart is needed. An MCU-only reset, such as a debugger reset after flashing,
-can leave the USB-to-UART adapter powered and COM5 open. If requests continue to
+can leave the USB-to-UART adapter powered and the serial port open. If requests continue to
 succeed, the bridge cannot detect the reset; restart it if the new firmware
 changed its tools/resources or schemas. A failed or timed-out UART request also
 triggers automatic recovery, without replaying uncertain calls.
@@ -117,7 +117,7 @@ it consistently for all C/C++ sources, to remove firmware resource support.
 The bridge still serves the tools and does not advertise resources for that
 firmware. It discovers resource metadata together with tools, and publishes
 `notifications/resources/list_changed` after reconnect when the catalog changes.
-MCU-only resets may keep COM5 open and responsive; see the reset/reconnection
+MCU-only resets may keep the serial port open and responsive; see the reset/reconnection
 behavior above for when a bridge restart is needed to refresh changed catalogs.
 
 ## Why no RTOS is needed
@@ -151,32 +151,34 @@ existing output-only console path; UART MCP is enabled on DevKit-E8.
    the CMSIS Developer Assistant in VS Code. Do not invoke pyOCD or GDB
    directly or install another copy of pyOCD.
 2. Set SW4 to **UART4** and use **PRG USB**, **115200 8N1**, with no hardware
-   flow control. COM5 was the detected USB serial port on this Windows host;
-   verify it if cables/devices change.
+   flow control. Select the board's serial device for your host OS, such as
+   `COM3` on Windows, `/dev/ttyACM0` or `/dev/ttyUSB0` on Linux, or
+   `/dev/cu.usbmodem12345` on macOS. Verify it if cables/devices change.
 3. Close Serial Monitor and any other process holding that port. The bridge
    must be its only owner, including when using CMSIS Assistant serial tools.
 4. Start the shared server **once**, from the workspace, and leave it running:
 
-   ```powershell
-   uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --port COM5
+   ```sh
+   uv run --script tools/mcp/mcp_serial_bridge.py --port "<serial-port>"
    ```
 
+   Replace `<serial-port>` with the device name selected above.
    `uv` installs the script's declared dependencies in its script environment
    on first use. To also install them into the workspace environment for Pylance:
 
    ```powershell
-   uv pip install --python .venv/Scripts/python.exe -r third_party/c_mcp/tools/requirements-mcp-serial-bridge.txt
+   uv pip install --python .venv/Scripts/python.exe -r tools/mcp/requirements-mcp-serial-bridge.txt
    ```
 
    The server binds only to `127.0.0.1`, port `8765`, and opens
-   one COM5 handle at a time, reopening after connection failures. Ctrl+C stops
+   one serial-port handle at a time, reopening after connection failures. Ctrl+C stops
    it and releases the UART. Startup still requires a responding board.
    Do not run multiple server instances or use multiple ASGI workers/reload.
    Use `--http-port` to change the HTTP port, and update the Codex URL to match.
 5. From another terminal, test the running server:
 
    ```powershell
-   uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --smoke-test
+   uv run --script tools/mcp/mcp_serial_bridge.py --smoke-test
    ```
 
    This connects through HTTP, initializes an MCP client, lists the tools and
@@ -186,7 +188,7 @@ existing output-only console path; UART MCP is enabled on DevKit-E8.
 
 Create **`.codex/config.toml` in the workspace root**, and copy the table from
 [`codex-mcp.toml`](codex-mcp.toml) into it. Merge it with any existing settings.
-Install `uv` on your PATH and adjust `COM5` in the server startup command to
+Install `uv` on your PATH and replace `<serial-port>` in the server startup command with
 your board's serial port. Codex connects to the running server by URL; it
 does not start a bridge per chat. The server must be running before Codex
 connects. The configuration contains no checkout-specific absolute paths.
@@ -206,7 +208,7 @@ Codex supports stdio and Streamable HTTP MCP transports; it does not open a
 serial port directly. Its project configuration is loaded for trusted projects.
 See the [official MCP configuration documentation](https://developers.openai.com/codex/mcp/).
 When migrating from the stdio configuration, disconnect the old Codex MCP
-connection/process first so it releases COM5, then start the HTTP server.
+connection/process first so it releases the serial port, then start the HTTP server.
 Reload/reconnect Codex after changing the configuration; existing connections
 can retain the old settings. `codex mcp list` can verify the configuration
 from the workspace. The example file is supplied for other checkouts to copy;
@@ -301,14 +303,12 @@ bridge tests still pass. The new HTTP path has not yet been validated on the
 physical board; the six optional native firmware tests were not run for this
 host-only change.
 
-- AC6 6.24.0 DevKit-E8 build passed. Parser and argument validation use
-  `-ffp-mode=full` so non-finite input checks work independently of renderer
-  optimization. Existing RTE update notices remain.
+- AC6 6.24.0 DevKit-E8 build passed. Existing RTE update notices remain.
 - Loaded with the CMSIS VS Code extension's bundled pyOCD 0.45.1 through
   ULINKplus `L85986697A`; no pyOCD installation was performed.
 - COM5 smoke test passed: initialization, 12-tool discovery and status while
   full-resolution AA rendering continued (observed frame render time ~325 ms).
-- `uv run --script tests/test_mcp_uart.py --port COM5` passed 47 requests:
+- The UART acceptance test passed 47 requests:
   every tool, invalid-input rejection without changes, a 3.5 KiB request sent
   in short chunks during full-AA/40-round rendering, and 20 repeated pings.
   Defaults were restored and the port closed. Local evidence is in

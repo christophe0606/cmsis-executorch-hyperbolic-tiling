@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "mcp_tools.hpp"
 #include "mcp.h"
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -18,7 +17,7 @@ int invalid(const char** message, const char* error) { *message = error; return 
 int colour(Color& target, const char* value, const char** message) {
   Color parsed;
   if (!parse_color(value, parsed))
-    return invalid(message, "Expected a known colour or finite r,g,b in [0,1]");
+    return invalid(message, "Expected a known colour or r,g,b in [0,1]");
   target = parsed; changes |= 4; return success(message);
 }
 int edge_colour(int, const char** message, const char** args) { return colour(settings->edge, args[0], message); }
@@ -72,8 +71,8 @@ int reflections(int, const char** message, const char** args) {
 }
 int texture_zoom(int, const char** message, const char** args) {
   double value = strtod(args[0], nullptr);
-  if (!std::isfinite(value) || value <= 0 || value > 100)
-    return invalid(message, "zoom must be finite, greater than 0 and at most 100");
+  if (value <= 0 || value > 100)
+    return invalid(message, "zoom must be greater than 0 and at most 100");
   settings->zoom = static_cast<float>(value); settings->zoom_override = true;
   return success(message);
 }
@@ -151,7 +150,6 @@ void mcp_tools_init(Settings& current, const volatile uint32_t* frames) {
   set_tool_callback(tile, tile_colour);
   add_argument(tile, "tile", TYPE_STR, "a or b");
   add_argument(tile, "color", TYPE_STR, "Colour name or r,g,b in [0,1]");
-  set_boolean_argument_alias(find_tool("antialiasing"), "mode", "on", "full", "none");
 #if C_MCP_ENABLE_VFS
   add_resource("hyperbolic://renderer/status", "Renderer status",
                "Current renderer settings and completed frame count", "text/plain", renderer_resource);

@@ -1,0 +1,9 @@
+# Application dependencies for mcp_serial_bridge.py (Python >=3.10).
+# Keep these entries in sync with the adjacent script's inline metadata.
+# From the c_mcp repository root, install into an existing environment with:
+# uv pip install --python <venv-python> -r tools/requirements-mcp-serial-bridge.txt
+mcp==1.26.0
+pyserial==3.5
+anyio
+starlette
+uvicorn

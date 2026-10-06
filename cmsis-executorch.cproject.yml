@@ -12,6 +12,10 @@ project:
     - pack: ARM::CMSIS-DSP
 
   components:
+    - component: CMSIS:MCP&Serial
+      define:
+        - CJSON_NESTING_LIMIT: 16
+        - C_MCP_ENABLE_SERIAL_LOOP: 1
     - component: CMSIS:DSP&Source
       not-for-context: [.Release, .Benchmark]
     - component: CMSIS:DSP&Source
@@ -56,36 +60,15 @@ project:
         - file: ./src/arm_embedded_module.hpp
 
     - group: MCP controls
-      misc:
-        - for-compiler: AC6
-          CPP:
-            - -ffp-mode=full
       files:
         - file: ./src/tiling_settings.cpp
         - file: ./src/tiling_settings.hpp
         - file: ./src/mcp_tools.cpp
         - file: ./src/mcp_tools.hpp
 
-    - group: c_mcp
-      # Portable dispatcher and serial loop; board layer supplies RX/TX hooks.
-      misc:
-        - for-compiler: AC6
-          C:
-            - -ffp-mode=full
-      define:
-        - CJSON_NESTING_LIMIT: 16
-        - C_MCP_ENABLE_SERIAL_LOOP: 1
-      files:
-        - file: ./third_party/c_mcp/mcp.c
-        - file: ./third_party/c_mcp/mcp.h
-        - file: ./third_party/c_mcp/c_mcp_config.h
-        - file: ./third_party/c_mcp/mcp_index.h
-        - file: ./third_party/c_mcp/serial_transport.c
-        - file: ./third_party/c_mcp/serial_transport.h
-        - file: ./third_party/c_mcp/cJSON.c
-        - file: ./third_party/c_mcp/cJSON.h
-
   layers:
+    - layer: ./tools/mcp/SerialBridge.clayer.yml
+      type: MCP-Host
     - layer: $Board-Layer$
       type: Board
     - layer: $AI-Layer$

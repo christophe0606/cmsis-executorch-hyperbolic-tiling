@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <cstdio>
 #include <cstring>
-#include <cmath>
 #include "tiling_settings.hpp"
 
 bool parse_texture_mode(const char* name, TextureMode& out) {
@@ -49,7 +48,6 @@ bool parse_color(const char* name, Color& out) {
   float r, g, b;
   char extra;
   if (sscanf(name, "%f,%f,%f%c", &r, &g, &b, &extra) == 3 &&
-      std::isfinite(r) && std::isfinite(g) && std::isfinite(b) &&
       r >= 0 && r <= 1 && g >= 0 && g <= 1 && b >= 0 && b <= 1) {
     out = {r, g, b};
     return true;

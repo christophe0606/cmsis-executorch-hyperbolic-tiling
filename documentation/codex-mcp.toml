@@ -1,6 +1,7 @@
 # Copy this table into <workspace>/.codex/config.toml.
 # Start the shared server once from this workspace:
-# uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --port COM5
+# uv run --script tools/mcp/mcp_serial_bridge.py --port "<serial-port>"
+# Replace <serial-port> with your board's serial device path on the host.
 # All chats connect to the same process; Codex does not launch it.
 [mcp_servers.hyperbolic_uart]
 url = "http://127.0.0.1:8765/mcp"

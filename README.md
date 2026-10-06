@@ -18,21 +18,27 @@ the camera's original colours. Tinting defaults to on and affects only video.
 
 **MCP over UART is available without an RTOS.** See
 [UART MCP and Codex workspace configuration](documentation/mcp-uart.md), including
-the serial bridge and the `.codex/config.toml` example. The bridge lives in the
-`c_mcp` submodule at
-[`third_party/c_mcp/tools/mcp_serial_bridge.py`](third_party/c_mcp/tools/mcp_serial_bridge.py).
-After initializing the submodule, start it once from this repository's root
-(adjust `COM5` to your board's port and close any serial monitor first):
+the serial bridge and the `.codex/config.toml` example. The project uses the
+CMSIS-MCP `MCP-Host` layer copied to
+[`tools/mcp/SerialBridge.clayer.yml`](tools/mcp/SerialBridge.clayer.yml), with
+the bridge at [`tools/mcp/mcp_serial_bridge.py`](tools/mcp/mcp_serial_bridge.py).
+This layout also works when importing the layer from an installed pack.
+Start it once from this repository's root
+(choose your board's serial port and close any serial monitor first):
 
-```powershell
-uv run --script third_party/c_mcp/tools/mcp_serial_bridge.py --port COM5
+```sh
+uv run --script tools/mcp/mcp_serial_bridge.py --port "<serial-port>"
 ```
+
+Replace `<serial-port>` with the device name for your configuration: for example
+`COM3` on Windows, `/dev/ttyACM0` or `/dev/ttyUSB0` on Linux, or
+`/dev/cu.usbmodem12345` on macOS.
 
 UV manages the script's dependencies automatically. To also install them into
 your existing project `.venv` for Pylance, use the adjacent requirements file:
 
 ```powershell
-uv pip install --python .venv/Scripts/python.exe -r third_party/c_mcp/tools/requirements-mcp-serial-bridge.txt
+uv pip install --python .venv/Scripts/python.exe -r tools/mcp/requirements-mcp-serial-bridge.txt
 ```
 
 This project extends the Arm ExecuTorch example with Alif board support
@@ -113,14 +119,15 @@ cd cmsis-executorch-hyperbolic-tiling
 git submodule update --init --recursive
 ```
 
-**Initialize the submodules before building.** `third_party/c_mcp` comes from
-[christophe0606/c_mcp](https://github.com/christophe0606/c_mcp). You can also
+**Initialize the submodules before building.** `third_party/c_mcp` contains
+the CMSIS-MCP library. You can also
 clone with `git clone --recurse-submodules`. After pulling changes or switching
 branches, run `git submodule update --init --recursive` again to select the
 recorded dependency revision.
 
-The firmware and host tests compile `mcp.c`, `cJSON.c` and `serial_transport.c`
-from `c_mcp`. The application uses the library's serial processing API and
+The firmware selects `CMSIS:MCP&Serial` from the local
+CMSIS-Pack in `third_party/c_mcp`; host tests compile the same sources directly.
+The application uses the library's serial processing API and
 supplies tool handlers; the board layer supplies UART RX/TX overrides.
 HTTP access from Codex is provided separately by the Python UART bridge.
 See [c_mcp integration](documentation/c_mcp-submodule.md) for the pinned

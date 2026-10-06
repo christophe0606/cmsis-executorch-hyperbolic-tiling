@@ -52,7 +52,7 @@ async def run(task, url, output, no_vfs):
                 if task >= 4 and not no_vfs:
                     assert "; edge 0,1,0;" in (await session.read_resource("hyperbolic://renderer/status")).contents[0].text
                 text(await session.call_tool("edgeColor", {"color": original_edge}))
-                invalid = await session.call_tool("edgeColor", {"color": "nan,0,0"})
+                invalid = await session.call_tool("edgeColor", {"color": "-0.1,0,0"})
                 assert invalid.isError
                 assert text(await session.call_tool("status", {})) == baseline
                 if task >= 3:
@@ -67,8 +67,8 @@ async def run(task, url, output, no_vfs):
                         ("renderScale", {"scale": "full"}, "scale full"),
                         ("renderScale", {"scale": "half"}, "scale half"),
                         ("antialiasing", {"mode": "partial"}, "AA partial"),
-                        ("antialiasing", {"on": False}, "AA none"),
-                        ("antialiasing", {"on": True}, "AA full"),
+                        ("antialiasing", {"mode": "none"}, "AA none"),
+                        ("antialiasing", {"mode": "full"}, "AA full"),
                         ("textureOn", {"on": False}, "texture off"),
                         ("textureOn", {"on": True}, "texture on"),
                         ("textureMode", {"mode": "video"}, "texture video"),
@@ -86,6 +86,8 @@ async def run(task, url, output, no_vfs):
                                        ("reflectionLimit", {"iterations": 41}),
                                        ("textureZoom", {"zoom": 0}),
                                        ("antialiasing", {"mode": "partial", "on": True}),
+                                       ("antialiasing", {"on": True}),
+                                       ("antialiasing", {"on": False}),
                                        ("antialiasing", {"mode": "true"}),
                                        ("tileColor", {"tile": "b"}),
                                        ("status", {"unexpected": True})]:

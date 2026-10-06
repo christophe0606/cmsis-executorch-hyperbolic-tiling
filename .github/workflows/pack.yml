@@ -1,0 +1,39 @@
+name: Build CMSIS-MCP documentation and pack
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pack:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: Open-CMSIS-Pack/gen-pack-action@main
+        with:
+          working-directory: ${{ github.workspace }}/third_party/c_mcp
+          doxygen-version: 1.13.2
+          packchk-version: 1.4.1
+          gen-doc-script: bash ./Documentation/Doxygen/gen_doc.sh
+          doc-path: ./Documentation/html
+          gen-pack-script: bash ./gen_pack.sh --no-preprocess
+          gen-pack-output: ./output
+          gh-pages-branch: ''
+          pack-artifact-format: zip
+      - name: Upload documentation
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: third_party/c_mcp/Documentation/html/
+          if-no-files-found: error

@@ -29,9 +29,8 @@ diagnostic text. See [MCP connection and configuration](mcp-uart.md).
 
 ### Partial AA
 
-MCP uses `antialiasing(mode="none"|"partial"|"full")`. The previous
-`on=true/false` argument remains accepted as a compatibility alias for full/none;
-Status always reports the mode name.
+MCP uses `antialiasing(mode="none"|"partial"|"full")`.
+Status reports the selected mode name.
 When the COM connection closes and reopens after a firmware update, the UART
 bridge rediscovers tool schemas and notifies connected MCP clients to refresh
 their tool list. If the update leaves the COM connection healthy, restart the

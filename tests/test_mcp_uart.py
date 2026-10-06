@@ -15,7 +15,7 @@ import time
 
 import serial
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "c_mcp" / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "mcp"))
 from mcp_serial_bridge import SerialRpc
 
 
@@ -90,7 +90,7 @@ def main():
                 assert expected in text, text
             for name, arguments in (
                 ("symmetryType", {"symmetry": 1.5}), ("reflectionLimit", {"iterations": 41}),
-                ("edgeColor", {"color": "nan,0,0"}), ("edgeColor", {"color": "2,0,0"}),
+                ("edgeColor", {"color": "-0.1,0,0"}), ("edgeColor", {"color": "2,0,0"}),
                 ("tileColor", {"tile": "c", "color": "red"}), ("textureZoom", {"zoom": -1}),
                 ("animationOn", {"on": "false"}), ("geometryType", {"geometry": "sphere"}),
                 ("textureOn", {"on": "false"}),

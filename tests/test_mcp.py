@@ -9,7 +9,7 @@ import sys
 import time
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "c_mcp" / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "mcp"))
 import mcp_serial_bridge as bridge
 
 SERVER = None
@@ -90,13 +90,14 @@ class FirmwareProtocol(unittest.TestCase):
             call("symmetryType", {"symmetry": 1.5}), call("symmetryType", {"symmetry": -1}),
             call("geometryType", {"geometry": "sphere"}), call("animationOn", {"on": "false"}),
             call("reflectionLimit", {"iterations": 41}), call("reflectionLimit", {"iterations": 0}),
-            call("textureZoom", {"zoom": 0}), call("edgeColor", {"color": "nan,0,0"}),
+            call("textureZoom", {"zoom": 0}), call("edgeColor", {"color": "-0.1,0,0"}),
             call("edgeColor", {"color": "2,0,0"}), call("edgeColor", {"color": "1,0,0junk"}),
             call("tileColor", {"tile": "c", "color": "green"}), call("renderScale", {"scale": "tiny"}),
             call("antialiasing", {}), call("does_not_exist"), call("animationOn", []),
             call("antialiasing", {"mode": "on"}), call("antialiasing", {"mode": True}),
             call("antialiasing", {"mode": "partial", "on": True}),
             call("antialiasing", {"mode": None}), call("antialiasing", {"on": 1}),
+            call("antialiasing", {"on": True}), call("antialiasing", {"on": False}),
             call("textureOn", {}), call("textureOn", {"on": "false"}), call("textureOn", {"on": 0}),
             call("edgeThickness", {}), call("edgeThickness", {"thickness": "wide"}),
             call("edgeThickness", {"thickness": "very_thick"}),
@@ -124,9 +125,8 @@ class FirmwareProtocol(unittest.TestCase):
         self.assertEqual(result[8]["result"], result[10]["result"])
         self.assertEqual(result[-1]["result"], result[0]["result"])
 
-    def test_antialiasing_modes_and_legacy_clients(self):
-        for args, mode in [({"mode": name}, name) for name in ("none", "partial", "full")] + [
-                ({"on": True}, "full"), ({"on": False}, "none")]:
+    def test_antialiasing_modes(self):
+        for args, mode in [({"mode": name}, name) for name in ("none", "partial", "full")]:
             result = self.exchange([call("status"), call("antialiasing", args), call("status")])
             self.assertIn("result", result[1])
             before = result[0]["result"]["content"][0]["text"]

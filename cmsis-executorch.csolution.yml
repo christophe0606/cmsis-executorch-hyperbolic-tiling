@@ -17,6 +17,10 @@ solution:
   compiler: AC6
 
   packs:
+    # Local development pack: the directory contains its PDSC and sources.
+    # Local path syntax uses a versionless pack ID and needs no installation.
+    - pack: ARM::CMSIS-MCP
+      path: ./third_party/c_mcp
     # Pinned exactly: the pack's C++ runtime and the Python exporter pinned in
     # requirements.txt must be the same ExecuTorch version, or the .pte fails
     # to load. `cbuild setup --packs` fetches it from the public index.
