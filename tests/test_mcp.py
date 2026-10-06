@@ -85,6 +85,59 @@ class FirmwareProtocol(unittest.TestCase):
         self.assertIn("texture video", reset)
         self.assertIn("symmetry 1, geometry disk, animation on, zoom 0.5", reset)
 
+    def test_colour_tool_responses_and_reset(self):
+        colours = [
+            ("red", "1,0,0"), ("blue", "0,0,1"),
+            ("green", "0,1,0"), ("yellow", "1,1,0"),
+            ("0.25,0.5,0.75", "0.25,0.5,0.75"),
+        ]
+        targets = [
+            ("edgeColor", {}, "edge"),
+            ("backgroundColor", {}, "background"),
+            ("tileColor", {"tile": "a"}, "tile a"),
+            ("tileColor", {"tile": "b"}, "tile b"),
+        ]
+        messages, expected_status = [], []
+        for tool, arguments, label in targets:
+            for colour, rgb in colours:
+                messages.extend([
+                    call(tool, {**arguments, "color": colour}, id=len(messages) + 1),
+                    call("status", id=len(messages) + 2),
+                ])
+                expected_status.append((label, colour, f"{label} {rgb}"))
+        messages.extend([call("reset", id="reset"), call("status", id="status")])
+        result = self.exchange(messages)
+        self.assertEqual(len(result), len(messages))
+        for index, (label, colour, expected) in enumerate(expected_status):
+            with self.subTest(target=label, colour=colour):
+                self.assertEqual(result[index * 2], {
+                    "jsonrpc": "2.0", "id": index * 2 + 1,
+                    "result": {"content": [{"type": "text", "text": "Settings updated for the next frame"}]},
+                })
+                status = result[index * 2 + 1]
+                self.assertEqual(status["jsonrpc"], "2.0")
+                self.assertEqual(status["id"], index * 2 + 2)
+                self.assertNotIn("error", status)
+                self.assertFalse(status["result"].get("isError", False))
+                content = status["result"]["content"]
+                self.assertEqual(len(content), 1)
+                self.assertEqual(content[0]["type"], "text")
+                self.assertIn(expected, content[0]["text"].split("; "))
+        self.assertEqual(result[-2], {
+            "jsonrpc": "2.0", "id": "reset",
+            "result": {"content": [{"type": "text", "text": "Board defaults restored"}]},
+        })
+        self.assertEqual(result[-1]["jsonrpc"], "2.0")
+        self.assertEqual(result[-1]["id"], "status")
+        self.assertNotIn("error", result[-1])
+        self.assertFalse(result[-1]["result"].get("isError", False))
+        content = result[-1]["result"]["content"]
+        self.assertEqual(len(content), 1)
+        self.assertEqual(content[0]["type"], "text")
+        fields = content[0]["text"].split("; ")
+        for expected in ("edge 1,1,1", "background 0,0,0", "tile a 1,0,0", "tile b 0,0,1"):
+            self.assertIn(expected, fields)
+
     def test_invalid_arguments_do_not_mutate(self):
         invalid = [
             call("symmetryType", {"symmetry": 1.5}), call("symmetryType", {"symmetry": -1}),
