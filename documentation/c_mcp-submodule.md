@@ -37,6 +37,9 @@ already includes that copy at `tools/mcp/SerialBridge.clayer.yml`; its commands
 use `tools/mcp/mcp_serial_bridge.py` for both local and installed-pack workflows.
 The Python files have category `other` and are not compiled into the firmware.
 The layer import is explicit and independent of the `CMSIS:MCP&Serial` component.
+The cproject requests `$MCP-Host-Layer$` and consumes the layer's
+`MCP_HOST_BRIDGE` connection. Both solution targets point that variable at the
+project-local copy, whose layer declaration provides the matching connection.
 Refresh the copied layer explicitly when updating the pack and review its files.
 
 Ubuntu workflows run the portable core, serial and bridge tests on each commit.

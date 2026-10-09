@@ -2,6 +2,11 @@ layer:
   type: MCP-Host
   description: Serial-to-HTTP MCP host bridge and Python dependencies
 
+  connections:
+    - connect: MCP serial host bridge
+      provides:
+        - MCP_HOST_BRIDGE
+
   # Host files are displayed in the project, but never compiled into firmware.
   groups:
     - group: MCP host bridge

@@ -45,6 +45,7 @@ solution:
       variables:
         - Board-Layer: $SolutionDir()$/board/Corstone-320/Board-U85.clayer.yml
         - AI-Layer: $SolutionDir()$/ai_layer/ai_layer.clayer.yml
+        - MCP-Host-Layer: $SolutionDir()$/tools/mcp/SerialBridge.clayer.yml
       target-set:
         - set:
           images:
@@ -88,6 +89,7 @@ solution:
       variables:
         - Board-Layer: $SolutionDir()$/board/DevKit-E8/Board-U85.clayer.yml
         - AI-Layer: $SolutionDir()$/ai_layer/ai_layer.clayer.yml
+        - MCP-Host-Layer: $SolutionDir()$/tools/mcp/SerialBridge.clayer.yml
       target-set:
         - set:
           images:

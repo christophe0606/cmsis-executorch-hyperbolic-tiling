@@ -129,51 +129,19 @@
             }
         },
         {
-            "name": "M55_HP CMSIS_DAP@pyOCD (attach)",
+            "name": "Arm-FVP@GDB (attach)",
             "type": "gdbtarget",
             "request": "attach",
             "cwd": "${workspaceFolder}/",
-            "program": "out/cmsis-executorch/DevKit-E8/Release/cmsis-executorch.axf",
+            "program": "out/cmsis-executorch/SSE-320-U85/Release/cmsis-executorch.axf",
             "gdb": "arm-none-eabi-gdb",
-            "auxiliaryGdb": true,
+            "auxiliaryGdb": false,
             "initCommands": [
-                ""
-            ],
-            "customResetCommands": [
-                "monitor reset halt",
-                "maintenance flush register-cache",
-                "maintenance flush dcache",
-                "tbreak main",
-                "continue"
+                "set remote verbose-resume-supported-packet off",
+                "set remote verbose-resume-packet off"
             ],
             "target": {
                 "port": "3333"
-            },
-            "cmsis": {
-                "cbuildRunFile": "${command:cmsis-csolution.getCbuildRunFile}",
-                "updateConfiguration": "auto"
-            }
-        },
-        {
-            "name": "M55_HE CMSIS_DAP@pyOCD (attach)",
-            "type": "gdbtarget",
-            "request": "attach",
-            "cwd": "${workspaceFolder}/",
-            "program": "out/M55_HE/DevKit-E8/Release/M55_HE.axf",
-            "gdb": "arm-none-eabi-gdb",
-            "auxiliaryGdb": true,
-            "initCommands": [
-                ""
-            ],
-            "customResetCommands": [
-                "monitor reset halt",
-                "maintenance flush register-cache",
-                "maintenance flush dcache",
-                "tbreak main",
-                "continue"
-            ],
-            "target": {
-                "port": "3334"
             },
             "cmsis": {
                 "cbuildRunFile": "${command:cmsis-csolution.getCbuildRunFile}",

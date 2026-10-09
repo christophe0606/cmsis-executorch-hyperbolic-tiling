@@ -67,12 +67,17 @@ project:
         - file: ./src/mcp_tools.hpp
 
   layers:
-    - layer: ./tools/mcp/SerialBridge.clayer.yml
+    - layer: $MCP-Host-Layer$
       type: MCP-Host
     - layer: $Board-Layer$
       type: Board
     - layer: $AI-Layer$
       type: AI
+
+  connections:
+    - connect: MCP application
+      consumes:
+        - MCP_HOST_BRIDGE
 
   output:
     type:
